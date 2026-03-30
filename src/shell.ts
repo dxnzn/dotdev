@@ -14,7 +14,7 @@ const DARK_BG = {
   'zorgz-4065': '#000000',
 };
 
-function _initShellChrome() {
+function initShellChrome() {
   const dx = window.__DXKIT__;
   if (!dx) return;
 
