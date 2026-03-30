@@ -1,0 +1,210 @@
+<div class="layout-tool">
+  <div class="left-col">
+    <!-- DAPP NAV -->
+    <div class="dapp-nav-bar anim-in">
+      <a class="dapp-nav-link active" data-view="calculator">Calculator</a>
+      <a class="dapp-nav-link" data-view="report">Report</a>
+    </div>
+
+    <!-- INPUT PANEL -->
+    <div class="card anim-in" id="input-panel">
+      <div class="card-title">Parameters</div>
+
+      <div class="input-group">
+        <label>Initial Investment <span class="hint">starting balance</span></label>
+        <div class="input-wrap has-suffix">
+          <input type="text" id="principal" value="10,000" inputmode="numeric" autocomplete="off">
+          <span class="suffix">$</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="input-group">
+        <label>Annual Percentage Yield <span class="hint">expected returns</span></label>
+        <div class="rate-control">
+          <input type="range" id="rate-slider" min="1" max="30" value="7" step="0.25">
+          <div class="input-wrap has-suffix rate-input">
+            <input type="text" id="rate" value="7.000" inputmode="decimal" autocomplete="off">
+            <span class="suffix">%</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-group">
+        <label>Time Period <span class="hint">investment horizon</span></label>
+        <div class="rate-control">
+          <input type="range" id="years-slider" min="1" max="30" value="20" step="1">
+          <div class="input-wrap has-suffix rate-input">
+            <input type="text" id="years" value="20" inputmode="decimal" autocomplete="off">
+            <span class="suffix">yr</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-group" id="compound-freq-group">
+        <label>Compounding Frequency</label>
+        <div class="btn-group btn-group--sm" id="compound-freq" role="radiogroup" aria-label="Compounding frequency">
+          <button data-value="365" role="radio" aria-checked="false">Daily</button>
+          <button data-value="12" class="active" role="radio" aria-checked="true">Monthly</button>
+          <button data-value="4" role="radio" aria-checked="false">Quarterly</button>
+          <button data-value="1" role="radio" aria-checked="false">Annually</button>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="input-group">
+        <label>Contribution <span class="hint">ongoing deposits</span></label>
+        <div class="rate-control">
+          <input type="range" id="contribution-slider" min="0" max="100000" value="200" step="100">
+          <div class="input-wrap has-suffix rate-input">
+            <input type="text" id="contribution" value="200" inputmode="decimal" autocomplete="off">
+            <span class="suffix">$</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="contrib-row">
+        <div class="input-group">
+          <label>Frequency</label>
+          <div class="btn-group btn-group--sm" id="contrib-freq" role="radiogroup" aria-label="Contribution frequency">
+            <button data-value="12" class="active" role="radio" aria-checked="true">Monthly</button>
+            <button data-value="1" role="radio" aria-checked="false">Annually</button>
+          </div>
+        </div>
+        <div class="input-group">
+          <label>Timing</label>
+          <div class="btn-group btn-group--sm" id="contrib-timing" role="radiogroup" aria-label="Contribution timing">
+            <button data-value="end" class="active" role="radio" aria-checked="true">End</button>
+            <button data-value="start" role="radio" aria-checked="false">Start</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="input-group" style="margin-top:1.5rem">
+        <label>Contribution Increase <span class="hint">annually</span></label>
+        <div class="rate-control">
+          <input type="range" id="contrib-increase-slider" min="0" max="20" value="0" step="0.5">
+          <div class="input-wrap has-suffix rate-input">
+            <input type="text" id="contrib-increase" value="0" inputmode="decimal" autocomplete="off">
+            <span class="suffix">%</span>
+          </div>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div class="input-group inflation-row">
+        <label>Inflation Rate</label>
+        <div class="input-wrap has-suffix rate-input">
+          <input type="text" id="inflation" value="3" inputmode="decimal" autocomplete="off">
+          <span class="suffix">%</span>
+        </div>
+      </div>
+
+      <div class="reset-row">
+        <a href="#/tools/cic" class="reset-link">Reset to defaults</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESULTS PANEL -->
+  <div class="results-area">
+    <div class="summary-strip anim-in">
+      <div class="summary-box total-box">
+        <div class="label">Future Value</div>
+        <div class="value" id="result-total">$0</div>
+      </div>
+      <div class="summary-box">
+        <div class="label" id="label-interest">Total Interest</div>
+        <div class="value" id="result-interest">$0</div>
+      </div>
+      <div class="summary-box">
+        <div class="label">Total Contributions</div>
+        <div class="value" id="result-contrib">$0</div>
+      </div>
+    </div>
+
+    <div class="card anim-in">
+      <div class="tabs" id="cic-tabs">
+        <button class="active" data-tab="chart">Chart</button>
+        <button data-tab="overview">Overview</button>
+        <button data-tab="table">Year-by-Year</button>
+        <button data-tab="formula">Formula</button>
+        <button data-tab="about">About</button>
+      </div>
+
+      <div class="tab-content active" id="tab-chart">
+        <div class="chart-container">
+          <canvas id="growth-chart"></canvas>
+        </div>
+        <div class="chart-legend" id="chart-legend">
+          <div class="leg"><div class="dot" style="background:var(--chart-line-principal)"></div>Principal</div>
+          <div class="leg"><div class="dot" style="background:var(--chart-line-contrib)"></div>Contributions</div>
+          <div class="leg"><div class="dot" style="background:var(--chart-line-total)"></div>Growth</div>
+        </div>
+        <div id="inflation-note" class="inflation-note"></div>
+      </div>
+
+      <div class="tab-content" id="tab-overview">
+        <div class="formula-card" id="overview-content"></div>
+      </div>
+
+      <div class="tab-content" id="tab-table">
+        <div class="table-scroll-wrap">
+          <div class="table-scroll" id="table-scroll">
+            <table class="data-table">
+              <thead id="table-head">
+                <tr><th>Year</th><th>Deposits</th><th>Interest</th><th>Cumulative</th><th>Balance</th></tr>
+              </thead>
+              <tbody id="table-body"></tbody>
+            </table>
+          </div>
+          <div class="table-fade" id="table-fade">Scroll for more ↓</div>
+        </div>
+        <button class="copy-btn" id="copy-table-btn">⎘ Copy as CSV</button>
+      </div>
+
+      <div class="tab-content" id="tab-formula">
+        <div class="formula-card" id="formula-content"></div>
+      </div>
+
+      <div class="tab-content" id="tab-about">
+        <div class="formula-card">
+          <p>A simple compound interest calculator.</p>
+          <p class="version-label" style="margin-top:0.5rem">v0.0.1</p>
+        </div>
+      </div>
+
+      <!-- REPORT VIEW (hidden unless report mode) -->
+      <div class="report-section" id="report-view">
+        <div class="report-overview">
+          <div class="section-title">Investment Overview</div>
+          <div class="formula-card" id="report-overview-content"></div>
+        </div>
+        <div class="report-chart">
+          <div class="section-title">Growth Projection</div>
+          <div class="chart-container">
+            <canvas id="report-chart-canvas"></canvas>
+          </div>
+          <div class="chart-legend">
+            <div class="leg"><div class="dot" style="background:var(--chart-line-principal)"></div>Principal</div>
+            <div class="leg"><div class="dot" style="background:var(--chart-line-contrib)"></div>Contributions</div>
+            <div class="leg"><div class="dot" style="background:var(--chart-line-total)"></div>Growth</div>
+          </div>
+        </div>
+        <div class="report-table">
+          <div class="section-title">Year-by-Year</div>
+          <table class="data-table">
+            <thead>
+              <tr><th>Year</th><th>Deposits</th><th>Interest</th><th>Cumulative</th><th>Balance</th></tr>
+            </thead>
+            <tbody id="report-table-body"></tbody>
+          </table>
+        </div>
+        <div id="report-inflation-note" class="inflation-note"></div>
+      </div>
+    </div>
+  </div>
+</div>

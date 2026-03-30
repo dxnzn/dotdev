@@ -1,0 +1,9 @@
+dist/
+node_modules/
+src/vendor/
+
+# Compiled JS output (generated from .ts by tsup)
+src/main.js
+src/shell.js
+src/dapps/*/dapp.js
+src/dapps/cic/cic.js

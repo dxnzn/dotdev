@@ -1,0 +1,14 @@
+{
+  "id": "projects",
+  "name": "Projects",
+  "description": "DNZN // PROJECTS",
+  "version": "1.0.0",
+  "route": "/projects",
+  "entry": "dapps/projects/dapp.js",
+  "styles": "dapps/projects/style.css",
+  "nav": {
+    "label": "Projects",
+    "group": "main",
+    "order": 2
+  }
+}

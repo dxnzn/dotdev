@@ -1,0 +1,166 @@
+/* ── HEADER ── */
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 2rem; padding-top: 0.25rem;
+  position: relative; z-index: 100;
+}
+
+.header-actions { display: flex; align-items: center; gap: 0.5rem; }
+
+/* ── APP DROPDOWN (navigation + dapp switcher) ── */
+.app-dropdown { position: relative; z-index: 100; }
+.app-dropdown-trigger {
+  display: flex; align-items: center; gap: 0.5rem;
+  background: transparent; border: none; cursor: pointer; padding: 0;
+}
+.app-dropdown-trigger h1 {
+  font-family: var(--font-mono); font-size: clamp(1.1rem, 3vw, 1.4rem);
+  font-weight: 700; letter-spacing: -0.03em; color: var(--text);
+}
+.app-dropdown-trigger .title-icon {
+  height: 2rem; width: 2rem;
+  border-radius: 0; object-fit: cover;
+  border: 1.5px solid var(--border);
+  transition: border-color 0.15s;
+}
+.app-dropdown-trigger:hover .title-icon { border-color: var(--accent); }
+.app-dropdown-menu {
+  display: flex; position: absolute; top: 100%; left: 0;
+  flex-direction: column; gap: 0; margin-top: 0.5rem;
+  background: var(--bg-card); border: 1px solid var(--border);
+  z-index: 10; min-width: 210px; padding: 0.5rem 0;
+  opacity: 0; pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.app-dropdown.open .app-dropdown-menu {
+  opacity: 1; pointer-events: auto; transform: translateY(0);
+}
+.app-dropdown-section {
+  font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-dim); padding: 0.6rem 0.75rem 0.3rem;
+}
+.app-dropdown-menu a {
+  position: relative;
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.45rem 0.75rem 0.45rem 1rem; background: transparent;
+  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 500;
+  letter-spacing: 0.06em; color: var(--text-muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap; text-decoration: none;
+}
+.app-dropdown-menu a:hover { color: var(--text); }
+.app-dropdown-menu a.active { color: var(--accent); }
+.app-dropdown-menu a.active::before {
+  content: ''; position: absolute; left: 0; top: 25%; bottom: 25%;
+  width: 2px; background: var(--accent);
+}
+.app-dropdown-divider { border: none; border-top: 1px solid var(--border); margin: 0.35rem 0; }
+
+/* ── TITLE-ICON PER-THEME (CSS content swap) ── */
+[data-theme="zorgz-156"] .title-icon { content: url('../assets/zorgz-156.svg'); }
+[data-theme="zorgz-2625"] .title-icon { content: url('../assets/zorgz-2625.svg'); }
+[data-theme="zorgz-4065"] .title-icon { content: url('../assets/zorgz-4065.svg'); }
+
+/* ── THEME PANEL (combined mode + scheme dropdown) ── */
+.theme-panel { position: relative; z-index: 100; }
+.theme-panel-trigger {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px; height: 40px; border-radius: 0;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.theme-panel-trigger:hover { color: var(--accent); }
+.theme-panel-trigger svg {
+  width: 22px; height: 22px; fill: none;
+  stroke: currentColor; stroke-width: 1.2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.theme-panel-menu {
+  display: flex; position: absolute; top: 100%; right: 0;
+  flex-direction: column; gap: 0; margin-top: 0.5rem;
+  background: var(--bg-card); border: 1px solid var(--border);
+  z-index: 10; min-width: 140px; padding: 0.5rem 0;
+  opacity: 0; pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.theme-panel.open .theme-panel-menu {
+  opacity: 1; pointer-events: auto; transform: translateY(0);
+}
+.theme-panel-section {
+  font-family: var(--font-mono); font-size: 0.68rem; font-weight: 700;
+  letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--text-dim); padding: 0.6rem 0.75rem 0.3rem;
+}
+.theme-panel-menu button {
+  position: relative;
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.45rem 0.75rem 0.45rem 1rem; background: transparent; border: none;
+  font-family: var(--font-mono); font-size: 0.72rem; font-weight: 500;
+  letter-spacing: 0.06em; color: var(--text-muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap; text-align: left;
+}
+.theme-panel-menu button:hover { color: var(--text); }
+.theme-panel-menu button.active { color: var(--accent); }
+.theme-panel-menu button.active::before {
+  content: ''; position: absolute; left: 0; top: 25%; bottom: 25%;
+  width: 2px; background: var(--accent);
+}
+.theme-panel-divider { border: none; border-top: 1px solid var(--border); margin: 0.35rem 0; }
+.theme-panel-swatch {
+  width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0;
+}
+
+/* ── SHARE BUTTON ── */
+.share-btn {
+  position: relative; display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+  font-family: var(--font-mono); background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.share-btn:hover { color: var(--accent); }
+.share-btn .share-icon { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.share-btn .share-copied {
+  position: absolute; top: 50%; right: 100%;
+  transform: translateY(-50%); margin-right: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.68rem; font-weight: 500; letter-spacing: 0.04em;
+  color: var(--accent); background: var(--bg-card);
+  border: 1px solid var(--border); white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 50;
+}
+.share-btn.copied .share-copied {
+  opacity: 1; pointer-events: auto;
+}
+
+/* ── WALLET BUTTON (placeholder) ── */
+.wallet-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.wallet-btn:hover { color: var(--accent); }
+.wallet-btn:disabled { opacity: 0.3; cursor: default; }
+.wallet-btn:disabled:hover { color: var(--text-muted); }
+.wallet-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── FOOTER ── */
+footer {
+  margin-top: auto; padding: 3rem 0 2rem; color: var(--text-muted); font-size: 0.78rem;
+  text-align: center;
+}
+footer a { color: var(--accent); text-decoration: none; }
+
+/* ── ANIMATION ── */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+.anim-in { animation: fadeUp 0.25s ease forwards; opacity: 0; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 600px) {
+  header { margin-bottom: 1rem; }
+  .app { padding: 1rem 0.75rem 3rem; }
+}

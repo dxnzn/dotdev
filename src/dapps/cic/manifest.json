@@ -1,0 +1,14 @@
+{
+  "id": "cic",
+  "name": "CIC",
+  "description": "DNZN // CIC - A simple compound interest calculator.",
+  "version": "1.0.0",
+  "route": "/tools/cic",
+  "entry": "dapps/cic/dapp.js",
+  "styles": "dapps/cic/style.css",
+  "nav": {
+    "label": "CIC",
+    "group": "tools",
+    "order": 1
+  }
+}

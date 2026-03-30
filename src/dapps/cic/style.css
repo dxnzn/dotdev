@@ -1,0 +1,62 @@
+/* CIC dapp — tool-specific overrides */
+
+/* Contribution row (frequency + timing side by side) */
+.contrib-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+@media (max-width: 600px) { .contrib-row { grid-template-columns: 1fr; } }
+
+/* Inflation row (label + input inline) */
+.inflation-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.inflation-row label { margin-bottom: 0; }
+
+/* Left column wrapper */
+.left-col { display: flex; flex-direction: column; gap: 1rem; }
+
+/* Dapp nav bar */
+.dapp-nav-bar {
+  display: flex; align-items: center; gap: 0;
+  background: var(--bg-card); border: 1px solid var(--border);
+  overflow: hidden;
+}
+.dapp-nav-link {
+  flex: 1; text-align: center;
+  padding: 0.6rem 0.75rem;
+  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 500;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--text-muted); text-decoration: none;
+  background: none; border: none; border-right: 1px solid var(--border);
+  cursor: pointer; transition: all 0.15s;
+}
+.dapp-nav-link:last-child { border-right: none; }
+.dapp-nav-link:hover { color: var(--text); }
+.dapp-nav-link.active { color: var(--accent); background: var(--accent-dim); }
+
+/* Reset defaults link */
+.reset-row { text-align: right; margin-top: 1rem; }
+.reset-link { font-size: 0.75rem; color: var(--text-muted); text-decoration: none; }
+.reset-link:hover { color: var(--accent); }
+
+/* CIC result colors */
+#result-contrib { color: var(--blue); }
+
+/* REPORT MODE — single column, dapp nav full width on top */
+.report-mode.layout-tool { display: flex; flex-direction: column; gap: 1rem; }
+.report-mode #input-panel { display: none; }
+.report-mode .left-col { width: 100%; margin-bottom: 0; }
+.report-mode .dapp-nav-bar { width: 100%; }
+.report-mode .results-area { width: 100%; }
+.report-mode .tabs { display: none; }
+.report-mode .tab-content { display: none !important; }
+.report-mode .report-section { display: block; }
+
+.report-section { display: none; }
+
+.report-overview { margin-bottom: 1.75rem; }
+.report-chart { margin-bottom: 0.5rem; }
+.report-chart .chart-container { height: 300px; }
+
+.report-table { margin-top: 1.75rem; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 600px) {
+  .report-chart .chart-container { height: 240px; }
+  .report-overview .formula-card code { word-break: break-all; }
+}

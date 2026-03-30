@@ -1,0 +1,103 @@
+<div class="layout-tool">
+  <!-- LEFT PANEL (widgets) -->
+  <div class="card anim-in">
+    <div class="card-title">Configuration</div>
+
+    <div class="input-group">
+      <label>Parameter A <span class="hint">placeholder</span></label>
+      <div class="input-wrap has-suffix">
+        <input type="text" value="1,000" inputmode="numeric" autocomplete="off" disabled>
+        <span class="suffix">$</span>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="input-group">
+      <label>Parameter B <span class="hint">placeholder</span></label>
+      <div class="rate-control">
+        <input type="range" min="1" max="100" value="50" step="1" disabled>
+        <div class="input-wrap has-suffix rate-input">
+          <input type="text" value="50" inputmode="decimal" autocomplete="off" disabled>
+          <span class="suffix">%</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>Mode</label>
+      <div class="btn-group btn-group--sm">
+        <button class="active" disabled>Alpha</button>
+        <button disabled>Beta</button>
+        <button disabled>Gamma</button>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="card-title" style="margin-top:0.5rem">Status</div>
+    <div class="widget-item">
+      <span class="widget-label">Network</span>
+      <span class="widget-value accent">Mainnet</span>
+    </div>
+    <div class="widget-item">
+      <span class="widget-label">Block</span>
+      <span class="widget-value">19,482,031</span>
+    </div>
+    <div class="widget-item">
+      <span class="widget-label">Gas</span>
+      <span class="widget-value">12 gwei</span>
+    </div>
+    <div class="widget-item">
+      <span class="widget-label">Status</span>
+      <span class="status-badge">Coming Soon</span>
+    </div>
+  </div>
+
+  <!-- RIGHT PANEL (main content) -->
+  <div class="results-area">
+    <div class="summary-strip anim-in">
+      <div class="summary-box total-box">
+        <div class="label">Total Value</div>
+        <div class="value">$0.00</div>
+      </div>
+      <div class="summary-box">
+        <div class="label">Metric A</div>
+        <div class="value">—</div>
+      </div>
+      <div class="summary-box">
+        <div class="label">Metric B</div>
+        <div class="value">—</div>
+      </div>
+    </div>
+
+    <div class="card anim-in">
+      <div class="tabs" id="tpl-tabs">
+        <button class="active" data-tab="tpl-main">Overview</button>
+        <button data-tab="tpl-detail">Detail</button>
+        <button data-tab="tpl-about">About</button>
+      </div>
+
+      <div class="tab-content active" id="tab-tpl-main">
+        <div class="empty-state">
+          <div class="empty-icon">///</div>
+          <h2>Template Dapp</h2>
+          <p>This is a skeleton dapp that demonstrates the DxKit dapp structure. Copy this directory to scaffold a new tool.</p>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-tpl-detail">
+        <div class="formula-card">
+          <p>Detail view placeholder. Add charts, tables, or any content here.</p>
+        </div>
+      </div>
+
+      <div class="tab-content" id="tab-tpl-about">
+        <div class="formula-card">
+          <p>About this dapp.</p>
+          <p class="version-label" style="margin-top:0.5rem">v1.0.0</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
