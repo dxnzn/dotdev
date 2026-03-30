@@ -1,0 +1,26 @@
+/* About dapp — content page overrides */
+.page-header {
+  font-size: 0.82rem; font-weight: 500; color: var(--text-dim);
+  margin-bottom: 1rem; letter-spacing: 0.02em;
+}
+
+.project-entry { margin-top: 1.25rem; }
+.project-entry + .project-entry { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
+
+.project-title {
+  font-size: 0.88rem; font-weight: 600; margin-bottom: 0.5rem;
+}
+.project-title a { color: var(--accent); text-decoration: none; }
+.project-title a:hover { text-decoration: underline; }
+
+.project-tag {
+  font-size: 0.68rem; font-weight: 500; color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+.note { color: var(--text-muted); font-style: italic; }
+
+p { margin-bottom: 0.75rem; }
+p:last-child { margin-bottom: 0; }
+
+a { color: var(--accent); }

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0e0e0e">
+  <title>DNZN // Denizen</title>
+
+  <!-- FOUC prevention: apply theme before CSS loads -->
+  <script>
+  (function() {
+    try {
+      var saved = JSON.parse(localStorage.getItem('dxkit:theme') || '{}');
+      var theme = saved.theme || 'zorgz-2625';
+      var mode = saved.mode || 'system';
+      var resolved = mode === 'system'
+        ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+        : mode;
+      document.documentElement.setAttribute('data-theme', theme);
+      document.documentElement.setAttribute('data-mode', resolved);
+    } catch(e) {
+      document.documentElement.setAttribute('data-theme', 'zorgz-2625');
+      document.documentElement.setAttribute('data-mode', 'dark');
+    }
+  })();
+  </script>
+
+  <link rel="icon" href="assets/zorgz-2625.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles/base.css">
+  <link rel="stylesheet" href="styles/theme.css">
+  <link rel="stylesheet" href="styles/shell.css">
+  <link rel="stylesheet" href="styles/components.css">
+</head>
+<body>
+  <div class="app">
+    <header id="shell-header"></header>
+    <div id="dx-mount"></div>
+    <footer id="shell-footer"></footer>
+  </div>
+
+  <script src="vendor/dxkit/index.global.js"></script>
+  <script src="vendor/dxkit/theme/index.global.js"></script>
+  <script src="vendor/dxkit/settings/index.global.js"></script>
+  <script src="shell.js"></script>
+  <script src="main.js"></script>
+</body>
+</html>

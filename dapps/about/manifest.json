@@ -1,0 +1,14 @@
+{
+  "id": "about",
+  "name": "About",
+  "description": "DNZN // ABOUT",
+  "version": "1.0.0",
+  "route": "/",
+  "entry": "dapps/about/dapp.js",
+  "styles": "dapps/about/style.css",
+  "nav": {
+    "label": "About",
+    "group": "main",
+    "order": 1
+  }
+}

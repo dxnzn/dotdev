@@ -1,0 +1,14 @@
+{
+  "id": "support",
+  "name": "Support",
+  "description": "DNZN // SUPPORT",
+  "version": "1.0.0",
+  "route": "/support",
+  "entry": "dapps/support/dapp.js",
+  "styles": "dapps/support/style.css",
+  "nav": {
+    "label": "Support",
+    "group": "main",
+    "order": 3
+  }
+}
