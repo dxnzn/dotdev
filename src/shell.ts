@@ -14,6 +14,7 @@ const DARK_BG = {
   'zorgz-4065': '#000000',
 };
 
+// biome-ignore lint/correctness/noUnusedVariables: called globally from main.js via <script> tag
 function initShellChrome() {
   const dx = window.__DXKIT__;
   if (!dx) return;
