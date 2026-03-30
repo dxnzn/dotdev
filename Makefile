@@ -11,7 +11,7 @@ DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 # Routes for history-mode stubs (keep in sync with dapp manifests)
 ROUTES := about projects support tools/cic tools/tpl
 
-.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit prepare-site gh-deploy
+.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit prepare-site deploy
 
 vendor:
 	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
@@ -92,7 +92,7 @@ prepare-site: build
 	@touch $(SITE)/.nojekyll
 	@echo "Site prepared in $(SITE)/"
 
-gh-deploy: vendor build test prepare-site
+deploy: vendor build test prepare-site
 	@echo "Deploying to gh-pages..."
 	@CURRENT_SHA=$$(git rev-parse --short HEAD) && \
 	DEPLOY_MSG="Deploy from $$CURRENT_SHA on $$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
@@ -101,7 +101,7 @@ gh-deploy: vendor build test prepare-site
 	if git rev-parse --verify gh-pages >/dev/null 2>&1; then \
 		git worktree add --quiet "$$TMPDIR/worktree" gh-pages; \
 	else \
-		git worktree add --quiet --orphan "$$TMPDIR/worktree" gh-pages; \
+		git worktree add --quiet --orphan -b gh-pages "$$TMPDIR/worktree"; \
 	fi && \
 	rm -rf "$$TMPDIR/worktree"/* && \
 	cp -a $(SITE)/. "$$TMPDIR/worktree/" && \
