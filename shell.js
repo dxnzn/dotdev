@@ -167,6 +167,10 @@ function updateThemeExtras(theme) {
   if (metaTheme) {
     metaTheme.setAttribute("content", isLight ? "#ffffff" : DARK_BG[currentTheme] || "#0e0e0e");
   }
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    favicon.setAttribute("href", `assets/${currentTheme}.svg`);
+  }
   const titleIcon = document.querySelector(".title-icon");
   if (titleIcon) {
     titleIcon.src = `assets/${currentTheme}.svg`;
