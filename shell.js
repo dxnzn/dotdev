@@ -8,7 +8,7 @@ const DARK_BG = {
   "zorgz-2625": "#0e0e0e",
   "zorgz-4065": "#000000"
 };
-function _initShellChrome() {
+function initShellChrome() {
   const dx = window.__DXKIT__;
   if (!dx) return;
   const theme = dx.getPlugin("theme");
