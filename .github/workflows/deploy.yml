@@ -19,11 +19,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Vendor DxKit
-        run: make vendor
+      - name: Lint
+        run: make lint
 
-      - name: Build TypeScript
-        run: make build
-
-      - name: Run tests
-        run: make test
+      - name: Test
+        run: npx vitest run
