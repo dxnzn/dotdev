@@ -1,6 +1,7 @@
 DXKIT_ROOT := ../dxkit
 SRC := src
 DIST := dist
+SITE := _site
 VERSION_FILE := BUILD_VERSION
 
 DATE := $(shell date +%Y%m%d)
@@ -10,7 +11,7 @@ DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 # Routes for history-mode stubs (keep in sync with dapp manifests)
 ROUTES := about projects support tools/cic tools/tpl
 
-.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit
+.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit prepare-site gh-deploy
 
 vendor:
 	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
@@ -81,6 +82,40 @@ test-watch: lint
 
 commit:
 	npx cz
+
+prepare-site: build
+	@rm -rf $(SITE)
+	@mkdir -p $(SITE)
+	@cp -a $(SRC)/. $(SITE)/
+	@find $(SITE) -name '*.ts' -not -name '*.d.ts' -delete
+	@rm -rf $(SITE)/types
+	@touch $(SITE)/.nojekyll
+	@echo "Site prepared in $(SITE)/"
+
+gh-deploy: vendor build test prepare-site
+	@echo "Deploying to gh-pages..."
+	@CURRENT_SHA=$$(git rev-parse --short HEAD) && \
+	DEPLOY_MSG="Deploy from $$CURRENT_SHA on $$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
+	TMPDIR=$$(mktemp -d) && \
+	trap "rm -rf $$TMPDIR" EXIT && \
+	if git rev-parse --verify gh-pages >/dev/null 2>&1; then \
+		git worktree add --quiet "$$TMPDIR/worktree" gh-pages; \
+	else \
+		git worktree add --quiet --orphan "$$TMPDIR/worktree" gh-pages; \
+	fi && \
+	rm -rf "$$TMPDIR/worktree"/* && \
+	cp -a $(SITE)/. "$$TMPDIR/worktree/" && \
+	cd "$$TMPDIR/worktree" && \
+	git add -A && \
+	if git diff --cached --quiet; then \
+		echo "No changes to deploy."; \
+	else \
+		git commit -m "$$DEPLOY_MSG" && \
+		git push origin gh-pages --force && \
+		echo "Deployed to gh-pages."; \
+	fi && \
+	cd - >/dev/null && \
+	git worktree remove --force "$$TMPDIR/worktree"
 
 clean:
 	@rm -rf $(DIST)
