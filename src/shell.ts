@@ -214,6 +214,12 @@ function updateThemeExtras(theme) {
     metaTheme.setAttribute('content', isLight ? '#ffffff' : DARK_BG[currentTheme] || '#0e0e0e');
   }
 
+  // Favicon swap
+  const favicon = document.querySelector('link[rel="icon"]');
+  if (favicon) {
+    favicon.setAttribute('href', `assets/${currentTheme}.svg`);
+  }
+
   // Title icon swap via CSS content: url() already handles this via theme.css
   // but we need to update the src for the initial load
   const titleIcon = document.querySelector('.title-icon');
