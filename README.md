@@ -1,5 +1,7 @@
 # DNZN // DEV
 
+This repository is the source code behind [dnzn.dev](https://dnzn.dev) - and is intended to provide a real-world working esxample of building on top of the [DxKit](https://github.com/dxnzn/dxkit) framework.
+
 by **Denizen.** // dnzn.wei
 
 ## Dapps
