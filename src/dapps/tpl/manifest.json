@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "route": "/tools/tpl",
   "entry": "dapps/tpl/dapp.js",
+  "template": "dapps/tpl/template.html",
   "styles": "dapps/tpl/style.css",
   "nav": {
     "label": "TPL",

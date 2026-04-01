@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "route": "/tools/cic",
   "entry": "dapps/cic/dapp.js",
+  "template": "dapps/cic/template.html",
   "styles": "dapps/cic/style.css",
   "nav": {
     "label": "CIC",

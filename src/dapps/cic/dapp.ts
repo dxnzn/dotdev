@@ -12,10 +12,6 @@ window.addEventListener('dx:mount', async (e) => {
   const path = e.detail.path;
   cicContainer = container;
 
-  // Fetch and inject HTML template
-  const res = await fetch('dapps/cic/template.html');
-  container.innerHTML = await res.text();
-
   // Load cic.js on first mount (it stays cached after)
   if (!cicLoaded) {
     await new Promise<void>((resolve, reject) => {

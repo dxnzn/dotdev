@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "route": "/support",
   "entry": "dapps/support/dapp.js",
+  "template": "dapps/support/template.html",
   "styles": "dapps/support/style.css",
   "nav": {
     "label": "Support",

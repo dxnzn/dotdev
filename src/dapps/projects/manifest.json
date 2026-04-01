@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "route": "/projects",
   "entry": "dapps/projects/dapp.js",
+  "template": "dapps/projects/template.html",
   "styles": "dapps/projects/style.css",
   "nav": {
     "label": "Projects",
