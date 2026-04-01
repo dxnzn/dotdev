@@ -64,19 +64,20 @@ describe('dapp lifecycle wiring', () => {
         expect(src).toContain('dx:unmount');
       });
 
-      it('fetches its own template.html on mount', () => {
-        expect(src).toContain(`dapps/${id}/template.html`);
+      it('declares its own template.html in manifest', () => {
+        const manifest = loadManifest(id);
+        expect(manifest.template).toBe(`dapps/${id}/template.html`);
       });
     });
   }
 });
 
-describe('cic dapp — dynamic script loading', () => {
+describe('cic dapp — manifest dependencies', () => {
   const src = loadDappSource('cic');
+  const manifest = loadManifest('cic');
 
-  it('loads cic.js dynamically on first mount', () => {
-    expect(src).toContain('dapps/cic/cic.js');
-    expect(src).toContain('cicLoaded');
+  it('declares cic.js as a manifest dependency', () => {
+    expect(manifest.dependencies).toContain('dapps/cic/cic.js');
   });
 
   it('supports report mode via sub-path parsing', () => {

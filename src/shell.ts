@@ -195,7 +195,6 @@ function updateThemePanelState(theme) {
   });
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: called from main.js onApply hook
 function updateThemeExtras(currentTheme: string, resolved: 'light' | 'dark') {
   const isLight = resolved === 'light';
 
