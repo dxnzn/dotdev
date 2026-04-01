@@ -2,8 +2,6 @@ let cleanup = null;
 window.addEventListener("dx:mount", async (e) => {
   if (e.detail.id !== "tpl") return;
   const container = e.detail.container;
-  const res = await fetch("dapps/tpl/template.html");
-  container.innerHTML = await res.text();
   const tabButtons = container.querySelectorAll(".tabs button");
   const tabHandler = (btn) => () => {
     const tab = btn.dataset.tab;

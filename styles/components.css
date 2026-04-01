@@ -48,7 +48,7 @@
 }
 
 .card-title {
-  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+  font-family: var(--font-mono); font-size: 0.8rem; font-weight: 600;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 1.25rem;
   display: flex; align-items: center; gap: 0.5rem;

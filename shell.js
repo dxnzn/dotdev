@@ -19,7 +19,7 @@ function initShellChrome() {
   wireShareButton();
   wireThemePanel(dx, theme);
   wireNavigation(dx);
-  updateThemeExtras(theme);
+  updateThemeExtras(theme.getTheme(), theme.getResolvedMode());
 }
 function renderHeader(_dx, manifests) {
   const headerEl = document.getElementById("shell-header");
@@ -138,7 +138,6 @@ function wireThemePanel(dx, theme) {
   });
   dx.events.on("dx:plugin:theme:changed", () => {
     updateThemePanelState(theme);
-    updateThemeExtras(theme);
   });
   updateThemePanelState(theme);
 }
@@ -153,11 +152,8 @@ function updateThemePanelState(theme) {
     btn.classList.toggle("active", btn.dataset.scheme === currentTheme);
   });
 }
-function updateThemeExtras(theme) {
-  if (!theme) return;
-  const currentTheme = theme.getTheme();
-  const resolvedMode = theme.getResolvedMode();
-  const isLight = resolvedMode === "light";
+function updateThemeExtras(currentTheme, resolved) {
+  const isLight = resolved === "light";
   const eyeColor = SCHEME_COLORS[currentTheme] || "#00ffff";
   const eyeL = document.getElementById("scheme-eye-l");
   const eyeR = document.getElementById("scheme-eye-r");

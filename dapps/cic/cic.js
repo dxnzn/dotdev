@@ -642,20 +642,19 @@
         themeUnsub = dx.events.on("dx:plugin:theme:changed", onThemeChange);
       }
     }
-    const shareBtn = document.getElementById("share-btn");
     function shareOverride(e) {
-      e.stopPropagation();
+      const btn = e.target.closest("#share-btn");
+      if (!btn) return;
+      e.stopImmediatePropagation();
       const layoutTool = container.querySelector(".layout-tool");
       const inReport = layoutTool?.classList.contains("report-mode");
       const url = buildShareURL(container, inReport);
       navigator.clipboard.writeText(url).then(() => {
-        shareBtn.classList.add("copied");
-        setTimeout(() => shareBtn.classList.remove("copied"), 1500);
+        btn.classList.add("copied");
+        setTimeout(() => btn.classList.remove("copied"), 1500);
       });
     }
-    if (shareBtn) {
-      shareBtn.addEventListener("click", shareOverride, true);
-    }
+    document.addEventListener("click", shareOverride, true);
     container.querySelectorAll(".dapp-nav-link").forEach((link) => {
       on(link, "click", (e) => {
         e.preventDefault();
@@ -669,9 +668,9 @@
     });
     let routeUnsub = null;
     if (dx) {
-      routeUnsub = dx.events.on("dx:route:changed", (_detail) => {
-        const currentPath = dx.router.getCurrentPath();
-        const sub = currentPath.replace("/tools/cic", "").split("?")[0].replace(/^\//, "").replace(/\/$/, "");
+      routeUnsub = dx.events.on("dx:route:subpath", ({ id, path }) => {
+        if (id !== "cic") return;
+        const sub = path.replace("/tools/cic", "").split("?")[0].replace(/^\//, "").replace(/\/$/, "");
         const shouldBeReport = sub === "report";
         const layoutTool = container.querySelector(".layout-tool");
         const currentlyReport = layoutTool?.classList.contains("report-mode");
@@ -702,7 +701,7 @@
     return function cleanup() {
       listeners.forEach(([el, event, handler, opts]) => el.removeEventListener(event, handler, opts));
       listeners.length = 0;
-      if (shareBtn) shareBtn.removeEventListener("click", shareOverride, true);
+      document.removeEventListener("click", shareOverride, true);
       if (themeUnsub) themeUnsub.off();
       if (routeUnsub) routeUnsub.off();
       if (resizeRAF) cancelAnimationFrame(resizeRAF);

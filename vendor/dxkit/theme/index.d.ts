@@ -16,6 +16,12 @@ interface CSSThemeOptions {
     defaultMode?: ThemeMode;
     /** localStorage key prefix. Default: 'dxkit:theme'. */
     storageKey?: string;
+    /** Called after DOM attributes are set — use for side-effects like favicon/meta-color updates. */
+    onApply?: (state: {
+        theme: string;
+        mode: ThemeMode;
+        resolved: 'light' | 'dark';
+    }) => void;
 }
 /**
  * Creates a CSS theme plugin.

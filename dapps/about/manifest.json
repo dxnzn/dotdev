@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "route": "/",
   "entry": "dapps/about/dapp.js",
+  "template": "dapps/about/template.html",
   "styles": "dapps/about/style.css",
   "nav": {
     "label": "About",

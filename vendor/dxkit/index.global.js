@@ -39,6 +39,7 @@ var DxKit = (() => {
     "dx:dapp:disabled",
     "dx:mount",
     "dx:unmount",
+    "dx:route:subpath",
     "dx:error",
     "dx:plugin:registered",
     "dx:event:registered"
@@ -169,9 +170,17 @@ var DxKit = (() => {
       });
     };
   }
+  function defaultTemplateLoader() {
+    return async (src) => {
+      const res = await fetch(src);
+      if (!res.ok) throw new Error(`Failed to load dapp template: ${src} (${res.status})`);
+      return res.text();
+    };
+  }
   function createLifecycleManager(events, options = {}) {
     const loadScript = options.scriptLoader ?? defaultScriptLoader();
     const loadStyle = options.styleLoader ?? defaultStyleLoader();
+    const loadTemplate = options.templateLoader ?? defaultTemplateLoader();
     const hasPlugin = options.hasPlugin ?? (() => true);
     let currentDappId = null;
     async function mount(manifest, container, path) {
@@ -196,6 +205,31 @@ var DxKit = (() => {
             source: `lifecycle:${manifest.id}:styles`,
             error: err instanceof Error ? err : new Error(String(err))
           });
+        }
+      }
+      if (manifest.template) {
+        try {
+          const html = await loadTemplate(manifest.template);
+          container.innerHTML = html;
+        } catch (err) {
+          events.emit("dx:error", {
+            source: `lifecycle:${manifest.id}:template`,
+            error: err instanceof Error ? err : new Error(String(err))
+          });
+          return;
+        }
+      }
+      if (manifest.dependencies?.length) {
+        for (const dep of manifest.dependencies) {
+          try {
+            await loadScript(dep);
+          } catch (err) {
+            events.emit("dx:error", {
+              source: `lifecycle:${manifest.id}:dependency`,
+              error: err instanceof Error ? err : new Error(String(err))
+            });
+            return;
+          }
         }
       }
       try {
@@ -344,7 +378,8 @@ var DxKit = (() => {
       basePath = "/",
       mode = "history",
       scriptLoader,
-      styleLoader
+      styleLoader,
+      templateLoader
     } = config;
     const events = createEventBus();
     const eventRegistry = createEventRegistry(events);
@@ -352,13 +387,15 @@ var DxKit = (() => {
     const lifecycle = createLifecycleManager(events, {
       hasPlugin: (name) => registry.has(name),
       scriptLoader,
-      styleLoader
+      styleLoader,
+      templateLoader
     });
     let manifests = [];
     let router = createRouter({ mode, basePath, manifests: [] });
     let mountContainer = null;
     let routeUnsub = null;
     let initialized = false;
+    let currentPath = null;
     const enabledState = /* @__PURE__ */ new Map();
     function getEnabledManifests() {
       return manifests.filter((m) => {
@@ -524,10 +561,19 @@ var DxKit = (() => {
       });
     }
     async function mountDapp(manifest) {
-      if (lifecycle.getCurrentDapp() === manifest.id) return;
+      const path = router.getCurrentPath();
+      if (lifecycle.getCurrentDapp() === manifest.id) {
+        if (currentPath !== null && currentPath !== path) {
+          const previousPath = currentPath;
+          currentPath = path;
+          events.emit("dx:route:subpath", { id: manifest.id, path, previousPath });
+        }
+        return;
+      }
       const container = getMountContainer();
       if (!container) return;
-      await lifecycle.mount(manifest, container, router.getCurrentPath());
+      await lifecycle.mount(manifest, container, path);
+      currentPath = path;
     }
     function getMountContainer() {
       if (mountContainer) return mountContainer;

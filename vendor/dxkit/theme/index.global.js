@@ -24,7 +24,7 @@ var DxTheme = (() => {
     createCSSTheme: () => createCSSTheme
   });
   function createCSSTheme(options = {}) {
-    const { themes = ["default"], defaultMode = "system", storageKey = "dxkit:theme" } = options;
+    const { themes = ["default"], defaultMode = "system", storageKey = "dxkit:theme", onApply } = options;
     let currentTheme = themes[0];
     let currentMode = defaultMode;
     let dx = null;
@@ -40,8 +40,10 @@ var DxTheme = (() => {
     function applyToDOM() {
       if (typeof document === "undefined") return;
       const el = document.documentElement;
+      const resolved = resolveMode();
       el.setAttribute("data-theme", currentTheme);
-      el.setAttribute("data-mode", resolveMode());
+      el.setAttribute("data-mode", resolved);
+      onApply?.({ theme: currentTheme, mode: currentMode, resolved });
     }
     function canUseStorage() {
       try {

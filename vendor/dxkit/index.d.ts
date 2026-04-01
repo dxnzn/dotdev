@@ -64,6 +64,10 @@ interface DappManifest {
     route: string;
     /** Compiled JS entry point, relative to dapp root. */
     entry: string;
+    /** HTML template path, relative to dapp root. Injected into container before scripts load. */
+    template?: string;
+    /** Additional scripts loaded before the entry point (e.g. domain logic modules). */
+    dependencies?: string[];
     /** CSS stylesheet path, relative to dapp root. Lazy-loaded on first mount. */
     styles?: string;
     nav: {
@@ -125,6 +129,11 @@ interface EventMap {
     };
     'dx:unmount': {
         id: string;
+    };
+    'dx:route:subpath': {
+        id: string;
+        path: string;
+        previousPath: string;
     };
     'dx:error': {
         source: string;
@@ -331,6 +340,8 @@ interface ShellConfig {
     scriptLoader?: (src: string) => Promise<void>;
     /** Override the style loader (useful for testing). */
     styleLoader?: (href: string) => Promise<void>;
+    /** Override the template loader (useful for testing). */
+    templateLoader?: (src: string) => Promise<string>;
 }
 /** The shell instance returned by createShell(). */
 interface Shell {
@@ -381,11 +392,14 @@ interface LifecycleManager {
 }
 type ScriptLoader = (src: string) => Promise<void>;
 type StyleLoader = (href: string) => Promise<void>;
+type TemplateLoader = (src: string) => Promise<string>;
 interface LifecycleManagerOptions {
     /** Override the script loader (useful for testing). */
     scriptLoader?: ScriptLoader;
     /** Override the style loader (useful for testing). */
     styleLoader?: StyleLoader;
+    /** Override the template loader (useful for testing). */
+    templateLoader?: TemplateLoader;
     /** Check if a named plugin is registered. Used for permission enforcement. */
     hasPlugin?: (name: string) => boolean;
 }
@@ -422,4 +436,4 @@ declare function createRouter(config: RouterConfig): Router;
  */
 declare function createShell(config?: ShellConfig): Shell;
 
-export { type Auth, type AuthState, type Context, type DappEntry, type DappManifest, type EventBus, type EventMap, type EventRegistration, type EventRegistry, type LifecycleManagerOptions, type Listener, type Plugin, type RegisteredEvent, type ScriptLoader, type SettingDefinition, type Settings, type SettingsSection, type Shell, type ShellConfig, type StyleLoader, type Theme, type ThemeMode, type Wallet, type WalletProvider, type WalletState, createEventBus, createEventRegistry, createLifecycleManager, createPluginRegistry, createRouter, createShell };
+export { type Auth, type AuthState, type Context, type DappEntry, type DappManifest, type EventBus, type EventMap, type EventRegistration, type EventRegistry, type LifecycleManagerOptions, type Listener, type Plugin, type RegisteredEvent, type ScriptLoader, type SettingDefinition, type Settings, type SettingsSection, type Shell, type ShellConfig, type StyleLoader, type TemplateLoader, type Theme, type ThemeMode, type Wallet, type WalletProvider, type WalletState, createEventBus, createEventRegistry, createLifecycleManager, createPluginRegistry, createRouter, createShell };
