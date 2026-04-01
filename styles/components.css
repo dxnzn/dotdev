@@ -48,7 +48,7 @@
 }
 
 .card-title {
-  font-family: var(--font-mono); font-size: 0.8rem; font-weight: 600;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 1.25rem;
   display: flex; align-items: center; gap: 0.5rem;
@@ -69,13 +69,13 @@
 
 .input-group label {
   display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 0.82rem; font-weight: 500; color: var(--text-dim); margin-bottom: 0.4rem;
+  font-size: 0.84rem; font-weight: 500; color: var(--text-dim); margin-bottom: 0.4rem;
 }
-.input-group label .hint { font-size: 0.72rem; color: var(--text-muted); font-weight: 400; }
+.input-group label .hint { font-size: 0.75rem; color: var(--text-muted); font-weight: 400; }
 
 .input-wrap { position: relative; display: flex; align-items: center; }
 .input-wrap .prefix, .input-wrap .suffix {
-  position: absolute; font-family: var(--font-mono); font-size: 0.85rem;
+  position: absolute; font-family: var(--font-mono); font-size: 0.84rem;
   color: var(--text-muted); pointer-events: none; z-index: 1;
 }
 .input-wrap .prefix { left: 12px; }
@@ -112,7 +112,7 @@
   display: flex; flex-direction: column; justify-content: space-between;
 }
 .summary-box .label {
-  font-size: 0.7rem; font-family: var(--font-mono);
+  font-size: 0.75rem; font-family: var(--font-mono);
   text-transform: uppercase; letter-spacing: 0.1em;
   color: var(--text-muted); margin-bottom: 0.5rem;
 }
@@ -132,9 +132,9 @@
 .chart-legend .dot { width: 10px; height: 10px; border-radius: 2px; }
 
 /* ── DATA TABLE ── */
-.data-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; }
+.data-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.84rem; }
 .data-table th {
-  text-align: left; font-weight: 600; font-size: 0.68rem;
+  text-align: left; font-weight: 600; font-size: 0.75rem;
   letter-spacing: 0.08em; text-transform: uppercase;
   color: var(--text-muted); padding: 0.6rem 0.75rem;
   border-bottom: 1px solid var(--border); white-space: nowrap;
@@ -159,14 +159,14 @@
 
 .table-scroll-wrap { position: relative; }
 .table-fade {
-  text-align: center; font-size: 0.7rem; color: var(--text-dim);
+  text-align: center; font-size: 0.75rem; color: var(--text-dim);
   padding: 0.4rem 0; letter-spacing: 0.03em;
   opacity: 1; transition: opacity 0.15s;
 }
 .table-fade.hidden { opacity: 0; pointer-events: none; }
 
 /* ── INFLATION NOTE ── */
-.inflation-note { display: none; font-size: 0.72rem; color: var(--text-muted); text-align: center; font-style: italic; margin-top: 1.5rem; }
+.inflation-note { display: none; font-size: 0.75rem; color: var(--text-muted); text-align: center; font-style: italic; margin-top: 1.5rem; }
 .inflation-note.visible { display: block; }
 .inflation-note span { color: var(--amber); }
 
@@ -176,18 +176,18 @@
 }
 .social-link {
   display: inline-flex; align-items: center; gap: 0.35rem;
-  font-size: 0.78rem; color: var(--text-muted); text-decoration: none;
+  font-size: 0.84rem; color: var(--text-muted); text-decoration: none;
   transition: color 0.15s;
 }
 .social-link:hover { color: var(--accent); }
 .social-icon { width: 0.95rem; height: 0.95rem; }
-.version-label { font-size: 0.7rem; color: var(--text-muted); letter-spacing: 0.04em; }
+.version-label { font-size: 0.75rem; color: var(--text-muted); letter-spacing: 0.04em; }
 
 /* ── FAQ ACCORDION ── */
 .faq-item { border-bottom: 1px solid var(--border); }
 .faq-item:last-child { border-bottom: none; }
 .faq-question {
-  font-family: var(--font-mono); font-size: 0.78rem; font-weight: 600;
+  font-family: var(--font-mono); font-size: 0.84rem; font-weight: 600;
   letter-spacing: 0.04em; color: var(--text-dim);
   padding: 0.85rem 0; cursor: pointer; list-style: none;
   transition: color 0.15s;
@@ -200,18 +200,18 @@
 .faq-item[open] .faq-question::before { content: '−'; }
 .faq-question:hover { color: var(--accent); }
 .faq-answer {
-  font-size: 0.82rem; color: var(--text-dim); line-height: 1.7;
+  font-size: 0.84rem; color: var(--text-dim); line-height: 1.7;
   padding: 0 0 1rem 1.2em;
 }
 .faq-answer p + p { margin-top: 0.5rem; }
 
 /* ── FORMULA ── */
-.formula-card { font-size: 0.8rem; color: var(--text-dim); line-height: 1.7; }
-.formula-card code { font-family: var(--font-mono); font-size: 0.78rem; background: var(--bg-input); padding: 0.15em 0.4em; border-radius: 3px; color: var(--accent); }
+.formula-card { font-size: 0.84rem; color: var(--text-dim); line-height: 1.7; }
+.formula-card code { font-family: var(--font-mono); font-size: 0.84rem; background: var(--bg-input); padding: 0.15em 0.4em; border-radius: 3px; color: var(--accent); }
 .formula-block {
   background: var(--bg-input); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 1rem 1.25rem; margin: 0.75rem 0;
-  font-family: var(--font-mono); font-size: 0.82rem;
+  font-family: var(--font-mono); font-size: 0.84rem;
   color: var(--text); line-height: 1.9; text-align: center;
   letter-spacing: 0.02em; overflow-x: auto;
 }
@@ -221,7 +221,7 @@
 .tabs::-webkit-scrollbar { display: none; }
 .tabs button {
   padding: 0.6rem 1rem; font-family: var(--font-mono);
-  font-size: 0.72rem; font-weight: 500; letter-spacing: 0.06em;
+  font-size: 0.75rem; font-weight: 500; letter-spacing: 0.06em;
   text-transform: uppercase; background: transparent; border: none;
   color: var(--text-muted); cursor: pointer; white-space: nowrap; flex-shrink: 0;
   border-bottom: 2px solid transparent; transition: all 0.15s; margin-bottom: -1px;
@@ -244,7 +244,7 @@
 
 /* ── SECTION TITLE (reusable) ── */
 .section-title {
-  font-family: var(--font-mono); font-size: 0.7rem; font-weight: 600;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 600;
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-muted); margin-bottom: 1rem;
   display: flex; align-items: center; gap: 0.5rem;
@@ -257,16 +257,16 @@
 @media (max-width: 600px) {
   .card { padding: 1rem; }
   .chart-container { height: 260px; }
-  .data-table { font-size: 0.7rem; }
-  .data-table th { padding: 0.4rem 0.5rem; font-size: 0.6rem; }
+  .data-table { font-size: 0.75rem; }
+  .data-table th { padding: 0.4rem 0.5rem; font-size: 0.68rem; }
   .data-table td { padding: 0.4rem 0.5rem; }
   .rate-input { width: 6.5rem; }
   .btn-group--sm button { padding: 0.45rem 0.15rem; font-size: 0.62rem; letter-spacing: 0.02em; }
   .summary-strip { gap: 0.35rem; }
   .summary-box { padding: 0.75rem 0.4rem; }
-  .summary-box .label { font-size: 0.58rem; letter-spacing: 0.06em; margin-bottom: 0.3rem; }
+  .summary-box .label { font-size: 0.62rem; letter-spacing: 0.06em; margin-bottom: 0.3rem; }
   .summary-box .value { font-size: clamp(0.85rem, 2.5vw, 1.1rem); }
-  .tabs button { padding: 0.5rem 0.7rem; font-size: 0.65rem; }
+  .tabs button { padding: 0.5rem 0.7rem; font-size: 0.68rem; }
   .formula-block { padding: 0.75rem; font-size: 0.75rem; }
 }
 

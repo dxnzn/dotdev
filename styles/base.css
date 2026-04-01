@@ -21,7 +21,7 @@ html { font-size: 15px; scroll-behavior: smooth; overflow-x: hidden; }
 
 body {
   font-family: var(--font-mono); background: var(--bg); color: var(--text);
-  line-height: 1.7; min-height: 100vh; -webkit-font-smoothing: antialiased;
+  font-size: 0.84rem; line-height: 1.7; min-height: 100vh; -webkit-font-smoothing: antialiased;
   transition: background-color 0.15s, color 0.15s;
   overflow-x: hidden;
 }

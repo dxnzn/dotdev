@@ -4,11 +4,11 @@
   display: flex; align-items: center; justify-content: space-between;
   padding: 0.75rem 0;
   border-bottom: 1px solid var(--border);
-  font-size: 0.8rem;
+  font-size: 0.84rem;
   color: var(--text-dim);
 }
 .widget-item:last-child { border-bottom: none; }
-.widget-item .widget-label { color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em; }
+.widget-item .widget-label { color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.06em; }
 .widget-item .widget-value { color: var(--text); font-weight: 500; }
 .widget-item .widget-value.accent { color: var(--accent); }
 
@@ -29,7 +29,7 @@
   text-align: center;
   padding: 4rem 2rem;
   color: var(--text-muted);
-  font-size: 0.8rem;
+  font-size: 0.84rem;
 }
 .empty-state .empty-icon {
   font-size: 2rem;
@@ -38,7 +38,7 @@
 }
 .empty-state h2 {
   font-family: var(--font-mono);
-  font-size: 1rem;
+  font-size: 0.92rem;
   font-weight: 700;
   color: var(--text);
   margin-bottom: 0.5rem;

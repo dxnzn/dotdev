@@ -1,6 +1,6 @@
 /* About dapp — content page overrides */
 .page-header {
-  font-size: 0.82rem; font-weight: 500; color: var(--text-dim);
+  font-size: 0.84rem; font-weight: 500; color: var(--text-dim);
   margin-bottom: 1rem; letter-spacing: 0.02em;
 }
 
@@ -8,7 +8,7 @@
 .project-entry + .project-entry { margin-top: 1.5rem; padding-top: 1.5rem; border-top: 1px solid var(--border); }
 
 .project-title {
-  font-size: 0.88rem; font-weight: 600; margin-bottom: 0.5rem;
+  font-size: 0.92rem; font-weight: 600; margin-bottom: 0.5rem;
 }
 .project-title a { color: var(--accent); text-decoration: none; }
 .project-title a:hover { text-decoration: underline; }
