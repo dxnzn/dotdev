@@ -150,7 +150,7 @@ header {
 
 /* ── FOOTER ── */
 footer {
-  margin-top: auto; padding: 3rem 0 2rem; color: var(--text-muted); font-size: 0.78rem;
+  margin-top: auto; padding: 3rem 0 2rem; color: var(--text-muted); font-size: 0.84rem;
   text-align: center;
 }
 footer a { color: var(--accent); text-decoration: none; }
