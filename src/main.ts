@@ -2,6 +2,7 @@ const shell = DxKit.createShell({
   plugins: {
     theme: DxTheme.createCSSTheme({
       themes: ['zorgz-2625', 'zorgz-156', 'zorgz-4065'],
+      onApply: ({ theme, resolved }) => updateThemeExtras(theme, resolved),
     }),
     settings: DxSettings.createSettings(),
   },

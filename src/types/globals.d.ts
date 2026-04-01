@@ -26,8 +26,9 @@ declare const DxSettings: {
   };
 };
 
-// Shell chrome init function (loaded via shell.js <script> tag before main.js)
+// Shell functions (loaded via shell.js <script> tag before main.js)
 declare function initShellChrome(): void;
+declare function updateThemeExtras(theme: string, resolved: 'light' | 'dark'): void;
 
 // CIC module (loaded dynamically by cic dapp.js)
 interface CICModule {

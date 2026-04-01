@@ -28,7 +28,9 @@ function initShellChrome() {
   wireShareButton();
   wireThemePanel(dx, theme);
   wireNavigation(dx);
-  updateThemeExtras(theme);
+
+  // onApply fires before chrome exists — apply extras now that DOM is ready
+  updateThemeExtras(theme.getTheme(), theme.getResolvedMode());
 }
 
 function renderHeader(_dx, manifests) {
@@ -169,10 +171,9 @@ function wireThemePanel(dx, theme) {
     });
   });
 
-  // React to theme changes
+  // React to theme changes (extras handled by onApply hook)
   dx.events.on('dx:plugin:theme:changed', () => {
     updateThemePanelState(theme);
-    updateThemeExtras(theme);
   });
 
   // Set initial active states
@@ -194,12 +195,9 @@ function updateThemePanelState(theme) {
   });
 }
 
-function updateThemeExtras(theme) {
-  if (!theme) return;
-
-  const currentTheme = theme.getTheme();
-  const resolvedMode = theme.getResolvedMode();
-  const isLight = resolvedMode === 'light';
+// biome-ignore lint/correctness/noUnusedVariables: called from main.js onApply hook
+function updateThemeExtras(currentTheme: string, resolved: 'light' | 'dark') {
+  const isLight = resolved === 'light';
 
   // Robot eye color
   const eyeColor = SCHEME_COLORS[currentTheme] || '#00ffff';
