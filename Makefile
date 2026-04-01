@@ -11,7 +11,7 @@ DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 # Routes for history-mode stubs (keep in sync with dapp manifests)
 ROUTES := about projects support tools/cic tools/tpl
 
-.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit prepare-site deploy
+.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
 
 vendor:
 	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
@@ -82,6 +82,12 @@ test-watch: lint
 
 commit:
 	npx cz
+
+release: build test
+	npx commit-and-tag-version
+	@echo
+	@echo "Release tagged. Review the changelog, then run:"
+	@echo "  git push --follow-tags"
 
 prepare-site: build
 	@rm -rf $(SITE)
