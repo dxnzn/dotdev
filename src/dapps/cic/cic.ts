@@ -771,20 +771,21 @@
     }
 
     // ── SHARE BUTTON OVERRIDE (capture phase) ──
-    const shareBtn = document.getElementById('share-btn');
+    // share-btn lives in the shell header, which renders after dapp mount —
+    // register on document (capture) and filter by target at click-time
     function shareOverride(e) {
-      e.stopPropagation();
+      const btn = (e.target as HTMLElement).closest('#share-btn');
+      if (!btn) return;
+      e.stopImmediatePropagation();
       const layoutTool = container.querySelector('.layout-tool');
       const inReport = layoutTool?.classList.contains('report-mode');
       const url = buildShareURL(container, inReport);
       navigator.clipboard.writeText(url).then(() => {
-        shareBtn.classList.add('copied');
-        setTimeout(() => shareBtn.classList.remove('copied'), 1500);
+        btn.classList.add('copied');
+        setTimeout(() => btn.classList.remove('copied'), 1500);
       });
     }
-    if (shareBtn) {
-      shareBtn.addEventListener('click', shareOverride, true);
-    }
+    document.addEventListener('click', shareOverride, true);
 
     // ── DAPP NAV (Calculator / Report toggle) ──
     container.querySelectorAll('.dapp-nav-link').forEach((link) => {
@@ -846,7 +847,7 @@
       listeners.length = 0;
 
       // Remove share override
-      if (shareBtn) shareBtn.removeEventListener('click', shareOverride, true);
+      document.removeEventListener('click', shareOverride, true);
 
       // Remove theme listener
       if (themeUnsub) themeUnsub.off();
