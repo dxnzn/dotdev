@@ -802,9 +802,9 @@
     // ── ROUTE CHANGE (sub-path toggle between calculator/report) ──
     let routeUnsub = null;
     if (dx) {
-      routeUnsub = dx.events.on('dx:route:changed', (_detail) => {
-        const currentPath = dx.router.getCurrentPath();
-        const sub = currentPath.replace('/tools/cic', '').split('?')[0].replace(/^\//, '').replace(/\/$/, '');
+      routeUnsub = dx.events.on('dx:route:subpath', ({ id, path }) => {
+        if (id !== 'cic') return;
+        const sub = path.replace('/tools/cic', '').split('?')[0].replace(/^\//, '').replace(/\/$/, '');
         const shouldBeReport = sub === 'report';
         const layoutTool = container.querySelector('.layout-tool');
         const currentlyReport = layoutTool?.classList.contains('report-mode');
