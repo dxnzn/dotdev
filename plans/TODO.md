@@ -21,11 +21,9 @@ checking / removed deprecated options. Treat as its own isolated change.
 
 ## biome config schema migration
 
-**Status:** pending · **Added:** 2026-06-29
+**Status:** done · **Added:** 2026-06-29 · **Completed:** 2026-06-29
 
-biome 2.4.9 → 2.5.1 (done 2026-06-29) now emits an info on `biome.json`
-suggesting a config schema migration. Lint/format still work — non-blocking.
-
-- [ ] Run `npx biome migrate --write`
-- [ ] Verify `make test` (lint) still passes
-- [ ] Commit as `chore: migrate biome config to 2.5 schema`
+biome 2.4.9 → 2.5.1 bumped the config schema and deprecated the
+`linter.rules.recommended` field. Migrated via `biome migrate --write`:
+`$schema` → 2.5.1, `recommended: true` → `preset: "recommended"`.
+`make test` clean (exit 0, 46/46).
