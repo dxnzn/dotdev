@@ -321,11 +321,16 @@ var DxKit = (() => {
     function navigate(path) {
       const fullPath = basePath === "/" ? path : basePath + path;
       if (mode === "hash") {
-        window.location.hash = `#${fullPath}`;
+        const target = `#${fullPath}`;
+        if (window.location.hash === target) {
+          notifyListeners();
+        } else {
+          window.location.hash = target;
+        }
       } else {
         window.history.pushState(null, "", fullPath);
+        notifyListeners();
       }
-      notifyListeners();
     }
     function notifyListeners() {
       const manifest = resolve(readCurrentPath());
@@ -396,6 +401,7 @@ var DxKit = (() => {
     let routeUnsub = null;
     let initialized = false;
     let currentPath = null;
+    let pendingMountId = null;
     const enabledState = /* @__PURE__ */ new Map();
     function getEnabledManifests() {
       return manifests.filter((m) => {
@@ -570,10 +576,16 @@ var DxKit = (() => {
         }
         return;
       }
+      if (pendingMountId === manifest.id) return;
       const container = getMountContainer();
       if (!container) return;
-      await lifecycle.mount(manifest, container, path);
-      currentPath = path;
+      pendingMountId = manifest.id;
+      try {
+        await lifecycle.mount(manifest, container, path);
+        currentPath = path;
+      } finally {
+        pendingMountId = null;
+      }
     }
     function getMountContainer() {
       if (mountContainer) return mountContainer;
