@@ -1,5 +1,5 @@
-import { ThemeMode, Theme } from '@dnzn/dxkit';
-
+import type { Theme, ThemeMode } from '@dnzn/dxkit';
+import '@dnzn/dxkit-settings';
 declare module '@dnzn/dxkit' {
     interface EventMap {
         'dx:plugin:theme:changed': {
@@ -9,7 +9,7 @@ declare module '@dnzn/dxkit' {
         };
     }
 }
-interface CSSThemeOptions {
+export interface CSSThemeOptions {
     /** Available theme names. First is the default. */
     themes?: string[];
     /** Initial mode. Default: 'system'. */
@@ -32,6 +32,4 @@ interface CSSThemeOptions {
  *
  * Declares settings so the settings plugin can render theme/mode controls.
  */
-declare function createCSSTheme(options?: CSSThemeOptions): Theme;
-
-export { type CSSThemeOptions, createCSSTheme };
+export declare function createCSSTheme(options?: CSSThemeOptions): Theme;

@@ -1,6 +1,4 @@
-import { Plugin, Settings } from '@dnzn/dxkit';
-export { SettingDefinition, Settings, SettingsSection } from '@dnzn/dxkit';
-
+import type { Plugin, Settings } from '@dnzn/dxkit';
 declare module '@dnzn/dxkit' {
     interface EventMap {
         'dx:plugin:settings:changed': {
@@ -10,7 +8,7 @@ declare module '@dnzn/dxkit' {
         };
     }
 }
-interface SettingsPluginOptions {
+export interface SettingsPluginOptions {
     /** localStorage key prefix. Default: 'dxkit:settings'. */
     storageKey?: string;
 }
@@ -20,8 +18,7 @@ interface SettingsPluginOptions {
  * Stores values in memory with localStorage persistence. Reads defaults from
  * dapp manifests. Emits 'dx:plugin:settings:changed' on every write.
  */
-declare function createSettings(options?: SettingsPluginOptions): Plugin & {
+export declare function createSettings(options?: SettingsPluginOptions): Plugin & {
     getSettingsAPI(): Settings;
 };
-
-export { type SettingsPluginOptions, createSettings };
+export type { SettingDefinition, Settings, SettingsSection } from '@dnzn/dxkit';

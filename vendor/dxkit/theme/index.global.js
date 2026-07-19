@@ -62,7 +62,13 @@ var DxTheme = (() => {
             mode: currentMode
           })
         );
-      } catch {
+      } catch (err) {
+        dx?.events.emit("dx:error", {
+          source: "plugin:theme:storage:write",
+          error: new Error(`Theme persist failed: ${err instanceof Error ? err.message : String(err)}`, {
+            cause: err
+          })
+        });
       }
     }
     function restore() {
@@ -73,7 +79,14 @@ var DxTheme = (() => {
         const saved = JSON.parse(raw);
         if (saved.theme && themes.includes(saved.theme)) currentTheme = saved.theme;
         if (saved.mode && ["light", "dark", "system"].includes(saved.mode)) currentMode = saved.mode;
-      } catch {
+      } catch (err) {
+        dx?.events.emit("dx:error", {
+          source: "plugin:theme:storage:read",
+          error: new Error(
+            `Theme restore failed (corrupted data) \u2014 falling back to defaults: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err }
+          )
+        });
       }
     }
     function syncToSettings() {

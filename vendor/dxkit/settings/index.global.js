@@ -31,6 +31,7 @@ var DxSettings = (() => {
     const keyHandlers = /* @__PURE__ */ new Map();
     const dappHandlers = /* @__PURE__ */ new Map();
     let dx = null;
+    let disabledListener = null;
     function canUseStorage() {
       try {
         return typeof localStorage !== "undefined" && typeof localStorage.setItem === "function";
@@ -46,7 +47,13 @@ var DxSettings = (() => {
           data[dappId] = Object.fromEntries(values);
         }
         localStorage.setItem(storageKey, JSON.stringify(data));
-      } catch {
+      } catch (err) {
+        dx?.events.emit("dx:error", {
+          source: "plugin:settings:storage:write",
+          error: new Error(`Settings persist failed: ${err instanceof Error ? err.message : String(err)}`, {
+            cause: err
+          })
+        });
       }
     }
     function restore() {
@@ -62,7 +69,14 @@ var DxSettings = (() => {
           }
           store.set(dappId, map);
         }
-      } catch {
+      } catch (err) {
+        dx?.events.emit("dx:error", {
+          source: "plugin:settings:storage:read",
+          error: new Error(
+            `Settings restore failed (corrupted data) \u2014 falling back to defaults: ${err instanceof Error ? err.message : String(err)}`,
+            { cause: err }
+          )
+        });
       }
     }
     function getDefault(dappId, key) {
@@ -106,6 +120,10 @@ var DxSettings = (() => {
         }
       }
     }
+    function cleanup(dappId) {
+      keyHandlers.delete(dappId);
+      dappHandlers.delete(dappId);
+    }
     const settingsAPI = {
       get(dappId, key) {
         const dappStore = store.get(dappId);
@@ -116,7 +134,7 @@ var DxSettings = (() => {
         if (!store.has(dappId)) store.set(dappId, /* @__PURE__ */ new Map());
         store.get(dappId).set(key, value);
         persist();
-        const kHandlers = keyHandlers.get(`${dappId}:${key}`);
+        const kHandlers = keyHandlers.get(dappId)?.get(key);
         if (kHandlers) {
           for (const handler of kHandlers) handler(value);
         }
@@ -156,10 +174,11 @@ var DxSettings = (() => {
         return sections;
       },
       onChange(dappId, key, handler) {
-        const mapKey = `${dappId}:${key}`;
-        if (!keyHandlers.has(mapKey)) keyHandlers.set(mapKey, /* @__PURE__ */ new Set());
-        keyHandlers.get(mapKey).add(handler);
-        return () => keyHandlers.get(mapKey)?.delete(handler);
+        if (!keyHandlers.has(dappId)) keyHandlers.set(dappId, /* @__PURE__ */ new Map());
+        const byKey = keyHandlers.get(dappId);
+        if (!byKey.has(key)) byKey.set(key, /* @__PURE__ */ new Set());
+        byKey.get(key).add(handler);
+        return () => byKey.get(key)?.delete(handler);
       },
       onAnyChange(dappId, handler) {
         if (!dappHandlers.has(dappId)) dappHandlers.set(dappId, /* @__PURE__ */ new Set());
@@ -174,9 +193,12 @@ var DxSettings = (() => {
         context.eventRegistry.registerEvent("settings", [{ name: "dx:plugin:settings:changed" }]);
         restore();
         loadDefinitions(context);
+        disabledListener = context.events.on("dx:dapp:disabled", ({ id }) => cleanup(id));
         context.settings = settingsAPI;
       },
       async destroy() {
+        disabledListener?.off();
+        disabledListener = null;
         keyHandlers.clear();
         dappHandlers.clear();
         dx = null;
