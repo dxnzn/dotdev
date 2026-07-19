@@ -111,7 +111,7 @@ function renderHeader(_dx, manifests) {
 function renderFooter() {
   const footerEl = document.getElementById('shell-footer');
   if (!footerEl) return;
-  footerEl.innerHTML = `by <strong>Denizen.</strong> // <a href="https://dnzn.wei.domains">dnzn.wei</a>`;
+  footerEl.innerHTML = `by <strong>Denizen.</strong> // dnzn.wei`;
 }
 
 function wireDropdowns() {
