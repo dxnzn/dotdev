@@ -198,6 +198,8 @@ function wireNavigation(dx) {
     const h1 = document.querySelector(".app-dropdown-trigger h1");
     if (h1) h1.textContent = title;
     document.title = title;
+    const wide = matched ? matched.route.startsWith("/tools/") : false;
+    document.documentElement.setAttribute("data-layout", wide ? "wide" : "narrow");
   }
   document.querySelectorAll("#app-menu a[data-route]").forEach((link) => {
     link.addEventListener("click", (e) => {

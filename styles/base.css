@@ -30,11 +30,14 @@ body {
   max-width: 1280px; margin: 0 auto; padding: 1.25rem 1.5rem 0;
   overflow-x: hidden;
   min-height: 100vh; display: flex; flex-direction: column;
-  transition: max-width 0.2s ease;
 }
 
-/* Narrow app when single-column content is active — header flush with content */
-.app:has(> #dx-mount > .layout-content),
-.app:has(.report-mode) {
-  max-width: 820px;
-}
+/* Width is driven by html[data-layout], set from the route synchronously
+   (index.html before paint, kept in sync by shell.ts) — so pages open at their
+   final width with no wide→narrow reflow, and the CIC chart never draws
+   mid-resize. Content narrows to a reading column; tools use the full width. */
+html[data-layout="narrow"] .app { max-width: 820px; }
+html[data-layout="wide"] .app { max-width: 1280px; }
+
+/* CIC report view narrows to a reading column within a tool page. */
+.app:has(.report-mode) { max-width: 820px; }

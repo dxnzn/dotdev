@@ -627,6 +627,16 @@
       }
     }
     on(window, "resize", onResize);
+    let chartRO = null;
+    const chartHost = container.querySelector("#growth-chart")?.parentElement;
+    if (typeof ResizeObserver !== "undefined" && chartHost) {
+      chartRO = new ResizeObserver(() => {
+        const tabChart = container.querySelector("#tab-chart");
+        if (lastResult && tabChart?.classList.contains("active"))
+          drawChartOn(container.querySelector("#growth-chart"), lastResult);
+      });
+      chartRO.observe(chartHost);
+    }
     const dx = window.__DXKIT__;
     let themeUnsub = null;
     if (dx) {
@@ -676,18 +686,12 @@
         const currentlyReport = layoutTool?.classList.contains("report-mode");
         if (shouldBeReport && !currentlyReport) {
           enterReportMode(container);
-          if (lastResult) {
-            setTimeout(() => {
-              updateReport(container, getState(), lastResult);
-            }, 250);
-          }
+          if (lastResult)
+            requestAnimationFrame(() => updateReport(container, getState(), lastResult));
         } else if (!shouldBeReport && currentlyReport) {
           exitReportMode(container);
-          if (lastResult) {
-            setTimeout(() => {
-              drawChartOn(container.querySelector("#growth-chart"), lastResult);
-            }, 250);
-          }
+          if (lastResult)
+            requestAnimationFrame(() => drawChartOn(container.querySelector("#growth-chart"), lastResult));
         }
       });
     }
@@ -705,6 +709,7 @@
       if (themeUnsub) themeUnsub.off();
       if (routeUnsub) routeUnsub.off();
       if (resizeRAF) cancelAnimationFrame(resizeRAF);
+      if (chartRO) chartRO.disconnect();
     };
   }
   window.CIC = { init };
