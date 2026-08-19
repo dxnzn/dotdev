@@ -753,6 +753,20 @@
     }
     on(window, 'resize', onResize);
 
+    // On client-side nav the dapp can mount before the route-driven layout width
+    // settles, so an immediate draw would size the canvas to a stale width and
+    // stretch it. Observe the container and redraw once its width actually lands.
+    let chartRO = null;
+    const chartHost = container.querySelector('#growth-chart')?.parentElement;
+    if (typeof ResizeObserver !== 'undefined' && chartHost) {
+      chartRO = new ResizeObserver(() => {
+        const tabChart = container.querySelector('#tab-chart');
+        if (lastResult && tabChart?.classList.contains('active'))
+          drawChartOn(container.querySelector('#growth-chart'), lastResult);
+      });
+      chartRO.observe(chartHost);
+    }
+
     // ── THEME CHANGE ──
     const dx = window.__DXKIT__;
     let themeUnsub = null;
@@ -812,20 +826,13 @@
 
         if (shouldBeReport && !currentlyReport) {
           enterReportMode(container);
-          if (lastResult) {
-            // Wait for .app max-width transition to finish before drawing chart
-            setTimeout(() => {
-              updateReport(container, getState(), lastResult);
-            }, 250);
-          }
+          // Width snaps synchronously now — draw after the layout reflow lands
+          if (lastResult)
+            requestAnimationFrame(() => updateReport(container, getState(), lastResult));
         } else if (!shouldBeReport && currentlyReport) {
           exitReportMode(container);
-          if (lastResult) {
-            // Wait for .app max-width transition to finish before drawing chart
-            setTimeout(() => {
-              drawChartOn(container.querySelector('#growth-chart'), lastResult);
-            }, 250);
-          }
+          if (lastResult)
+            requestAnimationFrame(() => drawChartOn(container.querySelector('#growth-chart'), lastResult));
         }
       });
     }
@@ -857,6 +864,9 @@
 
       // Cancel pending RAF
       if (resizeRAF) cancelAnimationFrame(resizeRAF);
+
+      // Stop observing the chart container
+      if (chartRO) chartRO.disconnect();
     };
   }
 

@@ -22,6 +22,10 @@
       document.documentElement.setAttribute('data-theme', 'zorgz-2625');
       document.documentElement.setAttribute('data-mode', 'dark');
     }
+    // Resolve layout width from the route before paint so pages open at their
+    // final width — content narrow, tools full-width. Kept in sync by shell.js.
+    var path = (window.location.hash.replace(/^#/, '') || '/').split('?')[0];
+    document.documentElement.setAttribute('data-layout', path.indexOf('/tools/') === 0 ? 'wide' : 'narrow');
   })();
   </script>
 

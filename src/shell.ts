@@ -256,6 +256,10 @@ function wireNavigation(dx) {
     const h1 = document.querySelector('.app-dropdown-trigger h1');
     if (h1) h1.textContent = title;
     document.title = title;
+
+    // Keep layout width in sync with the route (see index.html for initial paint).
+    const wide = matched ? matched.route.startsWith('/tools/') : false;
+    document.documentElement.setAttribute('data-layout', wide ? 'wide' : 'narrow');
   }
 
   // Navigate via DxKit router on nav link click
