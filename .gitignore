@@ -8,3 +8,7 @@ src/main.js
 src/shell.js
 src/dapps/*/dapp.js
 src/dapps/cic/cic.js
+
+# Scratch dir for agent-targeted feedback notes (see CLAUDE.md) — contents untracked
+tmp/*
+!tmp/.gitkeep
