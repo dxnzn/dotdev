@@ -148,17 +148,90 @@ Deferred. Tracked but not in the current roadmap.
 
 ## Traceability
 
-Populated during roadmap creation.
-
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| (pending roadmap) | — | Pending |
+| SET-01 | Phase 1 | Pending |
+| SET-02 | Phase 1 | Pending |
+| SET-03 | Phase 1 | Pending |
+| SET-04 | Phase 1 | Pending |
+| SET-05 | Phase 1 | Pending |
+| SET-06 | Phase 1 | Pending |
+| SET-07 | Phase 1 | Pending |
+| SET-08 | Phase 1 | Pending |
+| SET-09 | Phase 1 | Pending |
+| SET-10 | Phase 1 | Pending |
+| DX-01 | Phase 1 | Pending |
+| DX-02 | Phase 1 | Pending |
+| DX-03 | Phase 1 | Pending |
+| WAL-01 | Phase 2 | Pending |
+| WAL-02 | Phase 2 | Pending |
+| WAL-03 | Phase 2 | Pending |
+| WAL-04 | Phase 2 | Pending |
+| WAL-05 | Phase 2 | Pending |
+| WAL-06 | Phase 2 | Pending |
+| WAL-07 | Phase 2 | Pending |
+| DEC-01 | Phase 3 | Pending |
+| DEC-02 | Phase 3 | Pending |
+| DEC-03 | Phase 3 | Pending |
+| DEC-05 | Phase 3 | Pending |
+| DEC-06 | Phase 3 | Pending |
+| DEC-07 | Phase 3 | Pending |
+| DEC-08 | Phase 3 | Pending |
+| DEC-09 | Phase 3 | Pending |
+| DEC-10 | Phase 3 | Pending |
+| DEC-11 | Phase 3 | Pending |
+| DEC-12 | Phase 3 | Pending |
+| DEC-14 | Phase 3 | Pending |
+| DEC-15 | Phase 3 | Pending |
+| DEC-17 | Phase 3 | Pending |
+| COD-06 | Phase 3 | Pending |
+| TXT-02 | Phase 3 | Pending |
+| TXT-01 | Phase 4 | Pending |
+| TXT-03 | Phase 4 | Pending |
+| TXT-04 | Phase 4 | Pending |
+| TXT-05 | Phase 4 | Pending |
+| TST-02 | Phase 4 | Pending |
+| COD-01 | Phase 5 | Pending |
+| COD-02 | Phase 5 | Pending |
+| COD-03 | Phase 5 | Pending |
+| COD-04 | Phase 5 | Pending |
+| COD-05 | Phase 5 | Pending |
+| ETH-01 | Phase 5 | Pending |
+| ETH-05 | Phase 5 | Pending |
+| ETH-06 | Phase 5 | Pending |
+| ETH-07 | Phase 5 | Pending |
+| ETH-10 | Phase 5 | Pending |
+| ETH-11 | Phase 5 | Pending |
+| ETH-14 | Phase 5 | Pending |
+| DEC-04 | Phase 5 | Pending |
+| DEC-13 | Phase 5 | Pending |
+| NET-01 | Phase 5 | Pending |
+| NET-02 | Phase 5 | Pending |
+| NET-03 | Phase 5 | Pending |
+| NET-04 | Phase 5 | Pending |
+| NET-05 | Phase 5 | Pending |
+| NET-06 | Phase 5 | Pending |
+| NET-07 | Phase 5 | Pending |
+| TST-01 | Phase 5 | Pending |
+| TST-04 | Phase 5 | Pending |
+| ETH-02 | Phase 6 | Pending |
+| ETH-03 | Phase 6 | Pending |
+| ETH-04 | Phase 6 | Pending |
+| ETH-08 | Phase 6 | Pending |
+| ETH-09 | Phase 6 | Pending |
+| ETH-12 | Phase 6 | Pending |
+| ETH-13 | Phase 6 | Pending |
+| NET-08 | Phase 6 | Pending |
+| NET-09 | Phase 6 | Pending |
+| TST-03 | Phase 6 | Pending |
+| DEC-16 | Phase 6 | Pending |
 
 **Coverage:**
 - v1 requirements: 75 total
-- Mapped to phases: 0
-- Unmapped: 75 ⚠️
+- Mapped to phases: 75
+- Unmapped: 0 ✓
 
 ---
 *Requirements defined: 2026-08-19*
-*Last updated: 2026-08-19 after initial definition*
+*Last updated: 2026-08-19 after roadmap creation*
+</content>
