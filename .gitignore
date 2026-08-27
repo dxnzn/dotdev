@@ -1,3 +1,8 @@
+.planning
+.envrc.local
+.claude/settings.local.json
+
+# Project ignores below.
 dist/
 _site/
 node_modules/
@@ -9,6 +14,6 @@ src/shell.js
 src/dapps/*/dapp.js
 src/dapps/cic/cic.js
 
-# Scratch dir for agent-targeted feedback notes (see CLAUDE.md) — contents untracked
+# Scratch dir for agent-targeted feedback notes (see AGENTS.md) — contents untracked
 tmp/*
 !tmp/.gitkeep

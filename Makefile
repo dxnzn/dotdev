@@ -11,7 +11,24 @@ DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 # Routes for history-mode stubs (keep in sync with dapp manifests)
 ROUTES := about projects support tools/cic tools/tpl
 
-.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
+.PHONY: help init vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
+
+help:
+	@echo "Available commands:"
+	@echo "  make init        - Init Development"
+	@echo "  make setup       - Install npm dependencies"
+	@echo "  make vendor      - Build DxKit and vendor its IIFE + .d.ts"
+	@echo "  make build       - Transpile TypeScript to JavaScript"
+	@echo "  make watch       - Transpile in watch mode"
+	@echo "  make serve       - Build, then serve src/ on :3000"
+	@echo "  make lint        - Run biome"
+	@echo "  make test        - Lint, then run vitest"
+	@echo "  make dist        - Build a versioned dist/ folder"
+	@echo "  make deploy      - Build, test, and push to gh-pages"
+	@echo "  make clean       - Remove dist/"
+
+init:
+	bash ../shared/scripts/init.sh
 
 vendor:
 	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
