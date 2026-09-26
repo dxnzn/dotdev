@@ -1,0 +1,19 @@
+{
+  "id": "decode",
+  "name": "DECODE",
+  "description": "DNZN // DECODE - decode calldata, base64, hex, and other encoded blobs.",
+  "version": "1.0.0",
+  "route": "/tools/decode",
+  "entry": "dapps/decode/dapp.js",
+  "template": "dapps/decode/template.html",
+  "styles": "dapps/decode/style.css",
+  "dependencies": [
+    "dapps/decode/codecs.js",
+    "dapps/decode/core.js",
+    "dapps/decode/decoders.js",
+    "dapps/decode/ui.js"
+  ],
+  "requires": { "plugins": ["settings"] },
+  "standalone": false,
+  "nav": { "label": "Decode", "group": "tools", "order": 3 }
+}

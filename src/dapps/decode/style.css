@@ -1,0 +1,113 @@
+/* decode dapp — tool-specific overrides.
+   .layout-tool, .card, .card-title, .input-group, .btn-group, .select-wrap, .tabs,
+   .tab-content and .results-area are all shell-shared (src/styles/components.css) and are
+   deliberately NOT redefined here. .left-col is not shell-shared — every /tools/* dapp with
+   a tab strip copies it, per src/dapps/cic/style.css (see 03-RESEARCH.md Pitfall 1). */
+
+/* Left column wrapper */
+.left-col { display: flex; flex-direction: column; gap: 1rem; }
+
+/* Auto-detect badge — beside the decoder select, populated by ui.ts's paste/Decode-click
+   resolution (D-22/D-24). Empty and zero-height with nothing resolved yet. */
+.decode-auto-badge {
+  display: block; font-size: 0.75rem; color: var(--text-muted); min-height: 1.1em;
+}
+
+/* Payload textarea — no shell-shared textarea rule exists, unlike .input-wrap input */
+.decode-textarea {
+  width: 100%; min-height: 12rem; resize: vertical;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.65rem 0.75rem; font-family: var(--font-mono); font-size: 0.84rem;
+  color: var(--text); outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.decode-textarea:focus-visible {
+  border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+/* Result tree — the generic DecodeNode walk ui.ts renders (D-13: hand-rolled, two real
+   button targets per row — disclosure and value — never the row itself). */
+.decode-tree { font-family: var(--font-mono); font-size: 0.84rem; }
+.decode-tree-node { margin: 0.15rem 0; }
+.decode-tree-row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; padding: 0.1rem 0; }
+.decode-tree-label { color: var(--text-muted); }
+.decode-tree-hint {
+  font-size: 0.72rem; color: var(--text-muted); border: 1px solid var(--border);
+  border-radius: var(--radius); padding: 0 0.3rem;
+}
+
+/* Both targets read as plain text/glyphs, not as chrome buttons — the border/background reset
+   is what makes a real <button> indistinguishable from the styled <span> it replaces. */
+.decode-tree-disclosure {
+  background: none; border: none; padding: 0; width: 1.1em; color: var(--text-dim);
+  font-family: inherit; font-size: inherit; cursor: pointer; flex-shrink: 0;
+}
+.decode-tree-disclosure:hover { color: var(--accent); }
+.decode-tree-value {
+  background: none; border: none; padding: 0; margin: 0; text-align: left;
+  color: var(--text); font-family: inherit; font-size: inherit; word-break: break-all; cursor: pointer;
+}
+.decode-tree-value:hover { color: var(--accent); }
+
+.decode-tree-error { color: var(--red); }
+.decode-tree-warning { color: var(--amber); }
+.decode-tree-annotation { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
+
+.decode-provenance-badge {
+  font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em;
+  padding: 0.05rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius);
+  color: var(--text-dim);
+}
+.decode-provenance-verified { color: var(--accent); border-color: var(--accent); }
+.decode-provenance-unresolved { color: var(--amber); border-color: var(--amber); }
+
+.decode-tree-children {
+  margin-left: 1.1rem; padding-left: 0.6rem; border-left: 1px solid var(--border);
+}
+.decode-tree-children.decode-tree-collapsed { display: none; }
+
+/* Confirmation lives on the row (never the value button, which stays the click target) — a
+   CSS-generated label, never text the DOM write rule would have to justify. */
+.decode-tree-row.decode-copied .decode-tree-value { color: var(--accent); }
+.decode-tree-row.decode-copied .decode-tree-value::after {
+  content: 'Copied'; margin-left: 0.4em; font-size: 0.7rem; color: var(--accent);
+}
+
+/* Revealed only when the clipboard is unavailable or the write failed — same shape as
+   src/shell-wallet.ts's .wallet-address-full: hidden by default so geometry never moves. */
+.decode-copy-reveal {
+  display: none; width: 100%; margin-top: 0.5rem; padding: 0.35rem 0.5rem;
+  font-family: var(--font-mono); font-size: 0.78rem;
+  color: var(--text); background: var(--bg-input); border: 1px solid var(--border);
+}
+.decode-copy-reveal.revealed { display: block; }
+
+/* Share controls (D-19, D-20, D-06) — the ordinary Copy link is always present; the
+   compressed variant is a second control, hidden until the size warning shows (D-20). */
+.decode-share-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.decode-share-btn {
+  background: none; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.35rem 0.7rem; font-family: inherit; font-size: 0.78rem; color: var(--text);
+  cursor: pointer; transition: all 0.15s;
+}
+.decode-share-btn:hover { color: var(--accent); border-color: var(--accent); }
+.decode-share-btn.decode-copied { color: var(--accent); border-color: var(--accent); }
+.decode-share-btn.decode-copied::after { content: 'Copied'; margin-left: 0.4em; font-size: 0.7rem; }
+.decode-share-size { font-size: 0.72rem; color: var(--text-muted); }
+.decode-share-warning { font-size: 0.78rem; color: var(--amber); margin: 0.4rem 0 0; }
+
+/* Raw — the hex dump (D-16) */
+.decode-hexdump { font-family: var(--font-mono); font-size: 0.8rem; border-collapse: collapse; width: 100%; }
+.decode-hexdump td { padding: 0.1rem 0.6rem 0.1rem 0; white-space: pre; vertical-align: top; }
+.decode-hexdump-offset { color: var(--text-muted); }
+.decode-hexdump-bytes { color: var(--text); }
+.decode-hexdump-ascii { color: var(--text-dim); }
+
+/* Log — the live entry table (D-17, D-18) */
+.decode-log-controls { display: flex; justify-content: flex-end; margin-bottom: 0.6rem; }
+.decode-log-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; }
+.decode-log-table th, .decode-log-table td {
+  text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border);
+}
+.decode-log-table th { color: var(--text-muted); font-weight: 500; text-transform: uppercase; font-size: 0.68rem; }
+
+.decode-empty-message { color: var(--text-muted); font-size: 0.84rem; }

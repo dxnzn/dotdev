@@ -784,22 +784,14 @@
       }
     }
 
-    // ── SHARE BUTTON OVERRIDE (capture phase) ──
-    // share-btn lives in the shell header, which renders after dapp mount —
-    // register on document (capture) and filter by target at click-time
-    function shareOverride(e) {
-      const btn = (e.target as HTMLElement).closest('#share-btn');
-      if (!btn) return;
-      e.stopImmediatePropagation();
+    // ── SHARE BUTTON OVERRIDE ──
+    // Moved to src/share-target.ts (window.DnznShareTarget) — the header's document
+    // capture-phase listener and its rationale now live there, in one place. Read at press
+    // time, not at mount time, so entering/leaving report mode without a remount is reflected.
+    const releaseShareTarget = window.DnznShareTarget?.register(() => {
       const layoutTool = container.querySelector('.layout-tool');
-      const inReport = layoutTool?.classList.contains('report-mode');
-      const url = buildShareURL(container, inReport);
-      navigator.clipboard.writeText(url).then(() => {
-        btn.classList.add('copied');
-        setTimeout(() => btn.classList.remove('copied'), 1500);
-      });
-    }
-    document.addEventListener('click', shareOverride, true);
+      return buildShareURL(container, layoutTool?.classList.contains('report-mode'));
+    });
 
     // ── DAPP NAV (Calculator / Report toggle) ──
     container.querySelectorAll('.dapp-nav-link').forEach((link) => {
@@ -854,7 +846,7 @@
       listeners.length = 0;
 
       // Remove share override
-      document.removeEventListener('click', shareOverride, true);
+      releaseShareTarget?.();
 
       // Remove theme listener
       if (themeUnsub) themeUnsub.off();

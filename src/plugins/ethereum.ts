@@ -2,8 +2,10 @@
 // No init()/destroy(): plugin registration completes before any init() runs
 // (src/vendor/dxkit/index.global.js `init()`), so a settings-only plugin
 // participates in dx.settings.getSections() with nothing else to do.
-// The chainId -> explorer table is exported alongside the factory; Phase 5
-// reads this same table for its address links.
+// The chainId -> explorer table is exported alongside the factory. The decode dapp keeps its
+// own copy in src/dapps/decode/core.ts rather than reading this one directly — DEC-14 forbids
+// a portable dapp from reaching for a dotdev-specific global — and test/decode-registry.test.ts
+// asserts the two tables stay equal, so a chain added here must be added there too.
 
 (() => {
   const CHAINS = [

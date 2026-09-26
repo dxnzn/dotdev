@@ -120,6 +120,20 @@ interface DnznWalletModule {
   describeError(err: unknown): string | null;
 }
 
+// Header share-button override port (loaded via share-target.js <script> tag after
+// shell-wallet.js and before shell.js). See src/share-target.ts for why this is the one
+// deliberate exception to "dapps own only their container".
+type DnznShareUrlBuilder = () => string | null | Promise<string | null>;
+
+interface DnznShareTargetOptions {
+  onCopyFailed?(url: string): void;
+}
+
+interface DnznShareTargetModule {
+  register(build: DnznShareUrlBuilder, options?: DnznShareTargetOptions): () => void;
+  activeTarget(): DnznShareUrlBuilder | null;
+}
+
 // Shell functions (loaded via shell.js <script> tag before main.js)
 declare function initShellChrome(): void;
 declare function updateThemeExtras(theme: string, resolved: 'light' | 'dark'): void;
@@ -136,4 +150,5 @@ declare interface Window {
   DnznSettingsDapp?: DnznSettingsDappModule;
   DnznWalletIdentity?: DnznWalletIdentityModule;
   DnznWallet?: DnznWalletModule;
+  DnznShareTarget?: DnznShareTargetModule;
 }

@@ -13,6 +13,7 @@ by **Denizen.** // dnzn.wei
 | `/support` | Support | Projects we support |
 | `/settings` | Settings | Ethereum credentials and every dapp's settings, in one place |
 | `/tools/cic` | CIC | Compound Interest Calculator |
+| `/tools/decode` | Decode | Decode nested calldata, base64, hex, and other encoded blobs |
 | `/tools/tpl` | TPL | Template tool (optional, disabled by default) |
 
 ## Development
@@ -21,7 +22,7 @@ by **Denizen.** // dnzn.wei
 make setup          # Install npm dependencies (tsup, typescript, serve)
 make vendor         # Check ../dxkit build artifacts, then vendor IIFE + .d.ts files
 make build          # Compile TypeScript → JavaScript via tsup
-make serve          # Build + serve on localhost:3000
+make serve          # Build + serve on localhost:3333
 make watch          # Build in watch mode (recompile on change)
 make dist           # Build + create versioned dist/dnzn.dev-YYYYMMDD.ITER/
 make dist-history-stubs  # Same + generate index.html stubs for history-mode routing

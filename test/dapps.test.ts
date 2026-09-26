@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic', 'settings'] as const;
+const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic', 'decode', 'settings'] as const;
 const SRC = resolve(__dirname, '../src');
 
 function loadManifest(id: string) {
@@ -41,6 +41,18 @@ describe('dapp manifests', () => {
         expect(existsSync(resolve(SRC, `dapps/${id}/template.html`))).toBe(true);
       });
 
+      it('every dependency entry resolves to an existing TypeScript source file', () => {
+        // Skip: entry/styles/template.html above already cover the two-file dapp pattern
+        // (CIC, settings) fully — only a manifest with a dependencies array (a multi-module
+        // dapp) has anything for this case to walk. Covers decode's four modules and
+        // retroactively covers CIC's and settings' own dependencies too.
+        if (!manifest.dependencies || manifest.dependencies.length === 0) return;
+        for (const dependency of manifest.dependencies) {
+          const tsDependency = dependency.replace('.js', '.ts');
+          expect(existsSync(resolve(SRC, tsDependency)), `missing ${tsDependency}`).toBe(true);
+        }
+      });
+
       it('nav has label, group, and order', () => {
         expect(manifest.nav).toHaveProperty('label');
         expect(manifest.nav).toHaveProperty('group');
@@ -70,6 +82,22 @@ describe('dapp lifecycle wiring', () => {
       });
     });
   }
+});
+
+describe('decode dapp — DEC-15 (a licence and a README, both present)', () => {
+  // Scoped to decode alone, not walked over DAPP_IDS: the existing dapps do not all ship a
+  // LICENSE or a README of their own (CIC's LICENSE is the precedent decode follows; the others
+  // have neither) — asserting this for every id would fail retroactively for dapps that never
+  // promised either. Plan 03-04 shipped the licence and asserted its content; this closes the
+  // loop by asserting BOTH files are present for the one dapp DEC-15 actually names.
+
+  it('ships a LICENSE file', () => {
+    expect(existsSync(resolve(SRC, 'dapps/decode/LICENSE'))).toBe(true);
+  });
+
+  it('ships a README.md file', () => {
+    expect(existsSync(resolve(SRC, 'dapps/decode/README.md'))).toBe(true);
+  });
 });
 
 describe('cic dapp — manifest dependencies', () => {

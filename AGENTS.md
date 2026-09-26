@@ -34,6 +34,16 @@ the tree is deployed to GitHub Pages and is servable from IPFS unchanged. See
   `connect()`, so a silent read of already-granted permission has no path through it. D-01
   permits the exception — no DxKit code is modified and no second `WalletProvider` is written —
   and no other module may reach the injected provider directly.
+- `src/dapps/decode/` — a five-module dapp behind one shared namespace, `window.DxDecode` (a
+  **dapp** namespace, not a framework one — the `Dx*` prefix elsewhere means vendored DxKit,
+  this is decode's own). `core.ts` owns the ports, the `DecodeNode` result type, the decoder
+  registry and the decode service; `codecs.ts` the pure hex/base64/UTF-8 codecs; `decoders.ts`
+  the self-registering decoder adapters (one new file per decoder, per its own README's
+  "add a decoder" walkthrough); `ui.ts` the renderer and all DOM; `dapp.ts` lifecycle glue only.
+  Built to be portable into any DxKit shell (`requires.plugins: ["settings"]`,
+  `standalone: false`, no `Dnzn*`-prefixed identifier anywhere in the directory) and a source-
+  scanning guard (`test/decode-portability.test.ts`) enforces that posture on every change. See
+  `src/dapps/decode/README.md`.
 - `src/plugins/` — dotdev-local DxKit plugin factories (`ethereum.ts`), registered
   in `src/main.ts` and loaded by their own `<script>` tag in `src/index.html` before
   `main.js` — a plugin factory has to exist at shell-construction time and there is no
@@ -52,7 +62,7 @@ make setup     # npm install
 make vendor    # preflight ../dxkit artifacts, then vendor IIFE + .d.ts into src/vendor/
 make build     # transpile .ts -> .js via tsup
 make watch     # transpile in watch mode
-make serve     # build, then serve src/ on :3000
+make serve     # build, then serve src/ on :3333 (override: make serve PORT=…)
 make lint      # biome check .
 make test      # lint, then vitest run
 make dist      # build + bump BUILD_VERSION + versioned dist/ folder
@@ -70,8 +80,13 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   `.gitignore` compiled-output block, which enumerates literal paths — `src/shell.js` does not
   cover `src/shell-wallet.js`, so the artifact would be committed. The asymmetry is what makes
   this easy to miss: the plugin and dapp entries in that block *are* globs, so a new plugin or
-  dapp needs no `.gitignore` change and a new top-level module always does. Two such literal
-  lines exist today, `src/wallet-identity.js` and `src/shell-wallet.js`.
+  dapp needs no `.gitignore` change — but only for its **entry module** (`dapp.js`, covered by
+  the `src/dapps/*/dapp.js` glob). This holds for a single-module dapp like CIC or settings, but
+  the decode dapp proved it false in general: its four additional modules (`core.js`, `codecs.js`,
+  `decoders.js`, `ui.js`) needed a directory-glob line of their own,
+  `src/dapps/decode/*.js` — that pattern, not a literal per-file line, is what a future
+  multi-module dapp should follow. Two literal per-file lines also exist today for top-level
+  modules, `src/wallet-identity.js` and `src/shell-wallet.js`.
 - **No runtime dependencies and no CDN scripts.** Anything needed is implemented
   in-repo; the IPFS-servable, no-build-at-runtime posture depends on it.
 - **No backend.** All state is `localStorage` or the URL. That is a product
@@ -99,6 +114,13 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   chrome on every route. Identity comes from asking the injected provider on load instead of a
   stored value, and the re-arm on dropdown open now exists so the plugin acquires an active
   provider and Disconnect can actually revoke. See `tmp/dxkit-fr-wallet-identity-cache.md`.
+- **`src/main.ts` also canonicalizes a hash route's query string, before the shell exists.** The
+  vendored router strips a base path and a trailing slash from a hash route but never a query
+  string, so `#/tools/decode?decoder=hex&data=…` does not route — only `#/tools/decode/?…` (the
+  query separated by a slash) does. Removing the canonicalizer breaks every hash route on this
+  site that carries a query string, not just decode's; `test/decode-route.test.ts` records both
+  halves of the reason (the framework's own router failing to resolve the non-slash form, and
+  the canonicalizer converting it). See `tmp/dxkit-bug-router-hash-query.md`.
 - **`data-layout` is set twice, deliberately.** `src/index.html` sets it
   synchronously before first paint to avoid FOUC; `src/shell.ts` keeps it in sync
   afterwards. Change one and the other has to follow.

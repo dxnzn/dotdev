@@ -3,15 +3,16 @@ SRC := src
 DIST := dist
 SITE := _site
 VERSION_FILE := BUILD_VERSION
+PORT := 3333
 
 DATE := $(shell date +%Y%m%d)
 ITER := $(shell cat $(VERSION_FILE))
 DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 
 # Routes for history-mode stubs (keep in sync with dapp manifests)
-ROUTES := about projects support settings tools/cic tools/tpl
+ROUTES := about projects support settings tools/cic tools/tpl tools/decode
 
-.PHONY: help init vendor-preflight vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
+.PHONY: help init vendor-preflight vendor serve build watch setup dist dist-history-stubs clean bump-version typecheck lint lint-fix lint-format test test-watch commit release prepare-site deploy
 
 help:
 	@echo "Available commands:"
@@ -20,7 +21,7 @@ help:
 	@echo "  make vendor      - Vendor DxKit's prebuilt IIFE + .d.ts from $(DXKIT_ROOT)"
 	@echo "  make build       - Transpile TypeScript to JavaScript"
 	@echo "  make watch       - Transpile in watch mode"
-	@echo "  make serve       - Build, then serve src/ on :3000"
+	@echo "  make serve       - Build, then serve src/ on :$(PORT)"
 	@echo "  make lint        - Run biome"
 	@echo "  make test        - Lint, then run vitest"
 	@echo "  make dist        - Build a versioned dist/ folder"
@@ -77,8 +78,8 @@ watch:
 	@npx tsup --watch
 
 serve: build
-	@echo "Serving $(SRC)/ on http://localhost:3000 (no live reload)"
-	@npx serve $(SRC)/ --no-request-logging
+	@echo "Serving $(SRC)/ on http://localhost:$(PORT) (no live reload)"
+	@npx serve $(SRC)/ -l $(PORT) --no-request-logging
 
 bump-version:
 	@echo $$(( $(ITER) + 1 )) > $(VERSION_FILE)
@@ -102,7 +103,13 @@ dist-history-stubs: build bump-version
 	done
 	@echo "Dist with history stubs created: $(DIST)/$(DIST_NAME).history-stubs"
 
-lint:
+# WR-02: tsconfig.decode.json was gated by nothing until now — `npx tsc -p tsconfig.decode.json`
+# was only ever run by hand, so it wasn't actually enforcing the decode dapp's scoped contract
+# typecheck. `lint` (and therefore `test`, and CI's `make lint`) now runs it first.
+typecheck:
+	npx tsc -p tsconfig.decode.json --noEmit
+
+lint: typecheck
 	npx biome check .
 
 lint-fix:

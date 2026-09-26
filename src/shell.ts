@@ -293,6 +293,7 @@ const DAPP_TITLES: Record<string, string> = {
   projects: 'DNZN // PROJECTS',
   support: 'DNZN // SUPPORT',
   cic: 'DNZN // CIC',
+  decode: 'DNZN // DECODE',
   tpl: 'DNZN // TPL',
   settings: 'DNZN // SETTINGS',
 };

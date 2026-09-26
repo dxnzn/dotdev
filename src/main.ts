@@ -30,6 +30,65 @@ try {
   /* storage unavailable — nothing to clear */
 }
 
+// Framework routing gap (tmp/dxkit-bug-router-hash-query.md): the vendored router strips a
+// base path and a trailing slash from a hash route's path but never a query string, so
+// '#/tools/decode?decoder=hex&data=…' — the exact form DEC-03 and this dapp's own README name —
+// resolves to nothing; only '#/tools/decode/?…' (the query separated by a slash) is routable.
+// This rewrite inserts that slash before the router ever reads the path: once here,
+// synchronously, before the shell (and its router) is constructed, and once more on every
+// subsequent hashchange, registered before createShell so it runs ahead of the router's own
+// hashchange listener (listeners fire in registration order). A history REPLACEMENT, never a
+// push and never a `location.hash =` assignment — the former does not fire hashchange (no loop,
+// no double-handling), the latter would. Route-agnostic and deliberately NOT inside
+// src/dapps/decode/: this is a fix for any hash route carrying a query, and DEC-14 forbids a
+// portable dapp from carrying a workaround for one host's framework version — CIC only escapes
+// the gap because it happens to emit the slash itself (src/dapps/cic/cic.ts:422).
+function canonicalizeHashQuery(): void {
+  const hash = window.location.hash;
+  const path = hash.slice(1);
+  const qIdx = path.indexOf('?');
+  // No query string at all (this also covers the bare root hash, which has no '?' either), or a
+  // '?' with no route segment before it to canonicalize — both left untouched rather than
+  // rewritten.
+  if (qIdx <= 0) return;
+  // Already canonical — idempotent, so the hashchange listener below cannot loop or double a
+  // slash it already inserted.
+  if (path[qIdx - 1] === '/') return;
+  window.history.replaceState(null, '', `#${path.slice(0, qIdx)}/${path.slice(qIdx)}`);
+}
+
+canonicalizeHashQuery();
+window.addEventListener('hashchange', canonicalizeHashQuery);
+
+// SHARE-04: routes the header share button through decode's plain-link press while decode is
+// mounted. Deliberately NOT inside src/dapps/decode/ — DEC-14's portability guard
+// (test/decode-portability.test.ts) forbids any `Dnzn*`-prefixed identifier in that directory,
+// so decode itself can never name window.DnznShareTarget. This listens for the SAME dx:mount/
+// dx:unmount window events dapp.ts already does, and reaches decode's own generic
+// pressPlainShare/revealShareFailure hooks (types.d.ts's DxDecodeUiHandle) via
+// window.DxDecode.activeUi — the single-live-instance seam dapp.ts sets, mirroring `log`'s own
+// shape. The builder is only INVOKED at press time, well after both listeners have run for this
+// mount, so it does not matter which of the two registers first.
+type DxDappLifecycleEvent = CustomEvent<{ id: string }>;
+
+let releaseDecodeShareTarget: (() => void) | null = null;
+
+window.addEventListener('dx:mount', (rawEvent) => {
+  const e = rawEvent as DxDappLifecycleEvent;
+  if (e.detail.id !== 'decode') return;
+  releaseDecodeShareTarget =
+    window.DnznShareTarget?.register(() => window.DxDecode?.activeUi?.pressPlainShare() ?? null, {
+      onCopyFailed: (url) => window.DxDecode?.activeUi?.revealShareFailure(url),
+    }) ?? null;
+});
+
+window.addEventListener('dx:unmount', (rawEvent) => {
+  const e = rawEvent as DxDappLifecycleEvent;
+  if (e.detail.id !== 'decode') return;
+  releaseDecodeShareTarget?.();
+  releaseDecodeShareTarget = null;
+});
+
 const shell = DxKit.createShell({
   // Plugin registration completes before any plugin's own init() runs (DxKit registers
   // all plugins, then initialises them in this object's key order). `settings` must be
@@ -65,6 +124,7 @@ const shell = DxKit.createShell({
     { manifest: 'dapps/support/manifest.json' },
     { manifest: 'dapps/tpl/manifest.json' },
     { manifest: 'dapps/cic/manifest.json' },
+    { manifest: 'dapps/decode/manifest.json' },
     { manifest: 'dapps/settings/manifest.json' },
   ],
   mode: 'hash',

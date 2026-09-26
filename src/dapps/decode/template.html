@@ -1,0 +1,71 @@
+<div class="layout-tool">
+  <div class="left-col">
+    <div class="card anim-in" id="decode-input-panel">
+      <div class="card-title">Input</div>
+
+      <div class="input-group">
+        <label>Decoder</label>
+        <div class="select-wrap">
+          <select id="decode-selector"></select>
+        </div>
+        <span class="decode-auto-badge" id="decode-auto-badge"></span>
+      </div>
+
+      <div class="input-group">
+        <label>Payload <span class="hint">paste hex, base64, or another encoded blob</span></label>
+        <textarea id="decode-textarea" class="decode-textarea" rows="10" spellcheck="false" autocomplete="off"></textarea>
+      </div>
+
+      <div class="btn-group" id="decode-actions">
+        <button type="button" id="decode-run-btn">Decode</button>
+        <button type="button" id="decode-clear-btn">Clear</button>
+      </div>
+
+      <div class="input-group" id="decode-share-group">
+        <div class="decode-share-row">
+          <button type="button" id="decode-share-btn" class="decode-share-btn">Copy link</button>
+          <button type="button" id="decode-share-z-btn" class="decode-share-btn decode-share-z-btn" hidden>
+            Copy compressed link
+          </button>
+          <span class="decode-share-size" id="decode-share-size">0 B</span>
+        </div>
+        <p class="decode-share-warning" id="decode-share-warning" hidden>
+          This payload is large — a plain link may not survive being pasted elsewhere. Use the compressed link
+          instead.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <div class="results-area">
+    <div class="card anim-in">
+      <div class="tabs" id="decode-tabs">
+        <button class="active" data-tab="result">Result</button>
+        <button data-tab="raw">Raw</button>
+        <button data-tab="log">Log</button>
+      </div>
+
+      <div class="tab-content active" id="decode-tab-result">
+        <div id="decode-tree" class="decode-tree"></div>
+        <input
+          type="text"
+          id="decode-copy-reveal"
+          class="decode-copy-reveal"
+          readonly
+          aria-label="Full copied value (shown when the clipboard is unavailable)"
+        />
+      </div>
+
+      <div class="tab-content" id="decode-tab-raw">
+        <div id="decode-raw" class="decode-raw"></div>
+      </div>
+
+      <div class="tab-content" id="decode-tab-log">
+        <div class="decode-log-controls">
+          <button type="button" id="decode-log-clear-btn">Clear</button>
+        </div>
+        <div id="decode-log" class="decode-log"></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 describe('main — shell configuration', () => {
-  it('registers all six dapps with valid manifest paths', () => {
+  it('registers all seven dapps with valid manifest paths', () => {
     const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
 
     const manifestPaths = [...main.matchAll(/manifest:\s*'([^']+)'/g)].map((m) => m[1]);
@@ -13,6 +13,7 @@ describe('main — shell configuration', () => {
       'dapps/support/manifest.json',
       'dapps/tpl/manifest.json',
       'dapps/cic/manifest.json',
+      'dapps/decode/manifest.json',
       'dapps/settings/manifest.json',
     ]);
   });
@@ -90,5 +91,25 @@ describe('main — shell configuration', () => {
     expect(pluginsBlock).toBeDefined();
     const keys = [...pluginsBlock!.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]);
     expect(keys).toEqual(['settings', 'theme', 'ethereum', 'wallet']);
+  });
+
+  // SHARE-04 deviation (see .planning/quick/260905-ac3.../SUMMARY.md): decode cannot itself
+  // reach window.DnznShareTarget — DEC-14's portability guard forbids any `Dnzn*`-prefixed
+  // identifier in src/dapps/decode/ — so this wiring lives here instead. test/decode-url.test.ts
+  // proves the CONTRACT (pressPlainShare/revealShareFailure via a real share-target.js) works;
+  // these are source-string assertions that the wiring itself exists and is correctly scoped.
+  it('registers a decode share-target builder on dx:mount and releases it on dx:unmount', () => {
+    const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
+    expect(main).toMatch(/addEventListener\(\s*'dx:mount'/);
+    expect(main).toMatch(/addEventListener\(\s*'dx:unmount'/);
+    expect(main).toContain("e.detail.id !== 'decode'");
+    expect(main).toContain('DnznShareTarget?.register(');
+    expect(main).toContain('releaseDecodeShareTarget?.()');
+  });
+
+  it("reaches decode's plain share link only through its own exposed hooks, never a literal URL", () => {
+    const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
+    expect(main).toContain('DxDecode?.activeUi?.pressPlainShare()');
+    expect(main).toContain('DxDecode?.activeUi?.revealShareFailure(url)');
   });
 });
