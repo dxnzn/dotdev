@@ -9,7 +9,7 @@ ITER := $(shell cat $(VERSION_FILE))
 DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 
 # Routes for history-mode stubs (keep in sync with dapp manifests)
-ROUTES := about projects support tools/cic tools/tpl
+ROUTES := about projects support settings tools/cic tools/tpl
 
 .PHONY: help init vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
 
@@ -91,10 +91,10 @@ lint-fix:
 lint-format:
 	npx biome format --write .
 
-test: lint
+test: lint build
 	npx vitest run
 
-test-watch: lint
+test-watch: lint build
 	npx vitest
 
 commit:

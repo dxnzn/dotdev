@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic'] as const;
+const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic', 'settings'] as const;
 const SRC = resolve(__dirname, '../src');
 
 function loadManifest(id: string) {

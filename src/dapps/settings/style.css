@@ -1,0 +1,98 @@
+/* Settings dapp — checkbox-list, disabled and error states. Every colour is a
+   custom property (three themes each redefine them). Card spacing is owned
+   entirely by .layout-content's flex gap (components.css) — this file declares
+   none of its own, so settings matches the 2rem every other .layout-content
+   page gets. */
+
+/* ── PRIVACY NOTICE (SET-08, D-31) ──
+   Deliberately distinct from .card so the disclosure never reads as just another
+   settings section — border-left accent instead of the card's plain border. */
+.settings-privacy-notice {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--amber);
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem;
+}
+.settings-privacy-notice-heading {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--amber);
+  margin-bottom: 0.75rem;
+}
+.settings-privacy-notice p {
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--text-dim);
+  margin: 0 0 0.75rem;
+}
+.settings-privacy-notice p:last-child {
+  margin-bottom: 0;
+}
+
+/* ── MULTISELECT CHECKBOX LIST (D-26) ── */
+.settings-checkbox-list {
+  display: flex;
+  flex-direction: column;
+}
+.settings-checkbox-list label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.5rem 0.1rem;
+  font-size: 0.84rem;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+.settings-checkbox-list label + label {
+  border-top: 1px solid var(--border);
+}
+.settings-checkbox-list input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+/* ── SWITCH ROW (UI-05) ── */
+.settings-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+.settings-switch-label {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-dim);
+}
+.settings-switch-hint {
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* ── DEPENDSON-DISABLED FIELD (SET-05) ── */
+.input-group.is-disabled {
+  opacity: 0.55;
+}
+.input-group.is-disabled label,
+.input-group.is-disabled .hint,
+.input-group.is-disabled .settings-checkbox-list label,
+.input-group.is-disabled .settings-switch-label {
+  color: var(--text-muted);
+}
+.input-group.is-disabled input,
+.input-group.is-disabled select,
+.input-group.is-disabled button {
+  cursor: not-allowed;
+}
+
+/* ── VALIDATION ERROR STATE (D-14) ── */
+.settings-field-error {
+  margin-top: 0.4rem;
+  font-size: 0.75rem;
+  color: var(--red);
+}
+.input-wrap.has-error input {
+  border-color: var(--red);
+}

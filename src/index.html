@@ -10,7 +10,10 @@
   <script>
   (function() {
     try {
-      var saved = JSON.parse(localStorage.getItem('dxkit:theme') || '{}');
+      // Kept in sync with src/main.ts's STORAGE_NS ('dnzn:dotdev') by convention — this
+      // script runs before main.js loads, so it cannot read that const. A future rename
+      // must touch both.
+      var saved = JSON.parse(localStorage.getItem('dnzn:dotdev:theme') || '{}');
       var theme = saved.theme || 'zorgz-2625';
       var mode = saved.mode || 'system';
       var resolved = mode === 'system'
@@ -45,6 +48,7 @@
   <script src="vendor/dxkit/index.global.js"></script>
   <script src="vendor/dxkit/theme/index.global.js"></script>
   <script src="vendor/dxkit/settings/index.global.js"></script>
+  <script src="plugins/ethereum.js"></script>
   <script src="shell.js"></script>
   <script src="main.js"></script>
 </body>

@@ -136,6 +136,17 @@ header {
   opacity: 1; pointer-events: auto;
 }
 
+/* ── SETTINGS BUTTON ── */
+.settings-btn {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; padding: 0;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
+.settings-btn:hover { color: var(--accent); }
+.settings-btn.active { color: var(--accent); }
+.settings-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
 /* ── WALLET BUTTON (placeholder) ── */
 .wallet-btn {
   display: inline-flex; align-items: center; justify-content: center;

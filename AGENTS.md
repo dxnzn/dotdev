@@ -17,6 +17,10 @@ the tree is deployed to GitHub Pages and is servable from IPFS unchanged. See
   the source tree *is* the site; there is no runtime build output directory.
 - `src/dapps/<name>/` — one directory per dapp: `manifest.json`, `template.html`,
   `dapp.ts` (lifecycle), `style.css`, plus an optional domain module (`cic.ts`).
+- `src/plugins/` — dotdev-local DxKit plugin factories (e.g. `ethereum.ts`), registered
+  in `src/main.ts` and loaded by their own `<script>` tag in `src/index.html` before
+  `main.js` — a plugin factory has to exist at shell-construction time and there is no
+  manifest-driven load path for plugins the way a dapp dependency has.
 - `src/vendor/dxkit/` — framework IIFE + `.d.ts`, produced by `make vendor` from
   the `../dxkit` sibling checkout. Gitignored.
 - `src/styles/` — `base.css`, `theme.css`, `shell.css`, `components.css`.

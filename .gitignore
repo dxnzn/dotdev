@@ -13,6 +13,10 @@ src/main.js
 src/shell.js
 src/dapps/*/dapp.js
 src/dapps/cic/cic.js
+src/plugins/*.js
+src/dapps/settings/settings.js
+src/dapps/settings/fields.js
+src/dapps/settings/sync.js
 
 # Scratch dir for agent-targeted feedback notes (see AGENTS.md) — contents untracked
 tmp/*

@@ -10,6 +10,11 @@ export default defineConfig({
     'src/dapps/tpl/dapp.ts',
     'src/dapps/cic/dapp.ts',
     'src/dapps/cic/cic.ts',
+    'src/plugins/ethereum.ts',
+    'src/dapps/settings/dapp.ts',
+    'src/dapps/settings/settings.ts',
+    'src/dapps/settings/fields.ts',
+    'src/dapps/settings/sync.ts',
   ],
   // Transpile only — no bundling, no wrapping
   bundle: false,

@@ -11,6 +11,7 @@ by **Denizen.** // dnzn.wei
 | `/` | About | About, FAQS, etc |
 | `/projects` | Projects | Projects we created and/or contribute to |
 | `/support` | Support | Projects we support |
+| `/settings` | Settings | Ethereum credentials and every dapp's settings, in one place |
 | `/tools/cic` | CIC | Compound Interest Calculator |
 | `/tools/tpl` | TPL | Template tool (optional, disabled by default) |
 
