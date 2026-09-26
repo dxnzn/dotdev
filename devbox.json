@@ -3,6 +3,6 @@
   "packages": [
     "git@latest",
     "pre-commit@latest",
-    "nodejs@latest"
+    "nodejs@24"
   ]
 }

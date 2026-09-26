@@ -3,7 +3,12 @@
     "target": "ES2022",
     "module": "ES2022",
     "moduleResolution": "bundler",
-    "lib": ["ES2022", "DOM"],
+    // DOM.Iterable is load-bearing, not decoration: URLSearchParams' keys()/entries() are
+    // declared there, not in DOM, and transport.ts's credential redaction iterates both. A
+    // local node_modules carrying @types/node masks the gap — its own URLSearchParams has
+    // those members — so the omission only surfaced on CI's clean `npm ci`, where DOM's
+    // definition wins instead. Removing it reds the typecheck only in that environment.
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,

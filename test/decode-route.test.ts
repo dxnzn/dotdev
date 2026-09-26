@@ -41,36 +41,46 @@ function loadDxKit(): FakeDxKit {
 
 // ── The framework router — the gap itself ──────────────────────────────────────────────────
 
-describe('the framework router — the exact routing gap this task exists to close', () => {
-  const DxKit = loadDxKit();
-  const decodeManifest = JSON.parse(readFileSync(DECODE_MANIFEST_PATH, 'utf-8'));
+// src/vendor/ is gitignored and produced by `make vendor` from the ../dxkit sibling checkout, so
+// CI, a fork, and a fresh clone all legitimately lack it. Gate on presence the same way
+// test/shell-wallet.test.ts:1848 does — and keep the load INSIDE makeRouter(), because a skipped
+// describe still has its body evaluated during collection: a `const DxKit = loadDxKit()` at body
+// top level throws ENOENT before skipIf can spare it, which is exactly how this file used to fail.
+const hasVendoredRouter = existsSync(VENDOR_ROUTER_PATH);
 
-  function makeRouter(): FakeRouter {
-    return DxKit.createRouter({ mode: 'hash', basePath: '/', manifests: [decodeManifest] });
-  }
+describe.skipIf(!hasVendoredRouter)(
+  'the framework router — the exact routing gap this task exists to close (skipped — src/vendor/ ' +
+    'absent, no ../dxkit checkout to vendor from in this environment/CI)',
+  () => {
+    const decodeManifest = JSON.parse(readFileSync(DECODE_MANIFEST_PATH, 'utf-8'));
 
-  it('resolves the canonical slash form (route, then slash, then the query) to the decode manifest', () => {
-    const router = makeRouter();
-    const resolved = router.resolve('/tools/decode/?decoder=hex&data=0x68656c6c6f');
-    expect(resolved?.id).toBe('decode');
-  });
+    function makeRouter(): FakeRouter {
+      return loadDxKit().createRouter({ mode: 'hash', basePath: '/', manifests: [decodeManifest] });
+    }
 
-  it(
-    'does NOT resolve the non-canonical form (no slash before the query) — this is the ' +
-      'framework gap, not a repo bug. If this case ever starts passing, the framework has been ' +
-      'fixed upstream and this whole task (and tmp/dxkit-bug-router-hash-query.md) can be deleted',
-    () => {
+    it('resolves the canonical slash form (route, then slash, then the query) to the decode manifest', () => {
       const router = makeRouter();
-      const resolved = router.resolve('/tools/decode?decoder=hex&data=0x68656c6c6f');
-      expect(resolved).toBeNull();
-    },
-  );
+      const resolved = router.resolve('/tools/decode/?decoder=hex&data=0x68656c6c6f');
+      expect(resolved?.id).toBe('decode');
+    });
 
-  it('resolves the canonical form with no query string at all, same as any other route', () => {
-    const router = makeRouter();
-    expect(router.resolve('/tools/decode')?.id).toBe('decode');
-  });
-});
+    it(
+      'does NOT resolve the non-canonical form (no slash before the query) — this is the ' +
+        'framework gap, not a repo bug. If this case ever starts passing, the framework has been ' +
+        'fixed upstream and this whole task (and tmp/dxkit-bug-router-hash-query.md) can be deleted',
+      () => {
+        const router = makeRouter();
+        const resolved = router.resolve('/tools/decode?decoder=hex&data=0x68656c6c6f');
+        expect(resolved).toBeNull();
+      },
+    );
+
+    it('resolves the canonical form with no query string at all, same as any other route', () => {
+      const router = makeRouter();
+      expect(router.resolve('/tools/decode')?.id).toBe('decode');
+    });
+  },
+);
 
 // ── The canonicalizer in src/main.ts ────────────────────────────────────────────────────────
 
