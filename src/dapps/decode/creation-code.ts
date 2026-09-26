@@ -49,9 +49,13 @@ const CC_PROLOGUES = ['6080604052', '6040608052'];
 // So the marker must be corroborated: creation code begins with EVM init code, which in practice
 // opens with PUSH1 (0x60) or PUSH2 (0x61) setting up the free-memory pointer. The handoff's own two
 // prologues are both 0x60..., and §7.4's real payload opens 0x61024060 — neither of them, which is
-// why the prologue list cannot be the primary test either. First byte plus marker is what
-// distinguishes the payload from a call that merely contains one.
+// why the prologue list cannot be the primary test either. First byte plus marker plus the
+// word-aligned tail ccMatch requires below is what distinguishes the payload from a call that
+// merely contains one.
 const CC_INIT_OPCODES = [0x60, 0x61];
+
+// The metadata marker's own length: 6 bytes of tag, 3 of version, 2 of length — fixed.
+const CC_METADATA_BYTES = 11;
 
 interface CreationCodeMatch {
   // Byte offset of the metadata marker's first byte, or null when only a prologue matched.
@@ -79,12 +83,24 @@ function ccFindMetadata(hex: string): number | null {
 // boundary or it produces nothing at all.
 function ccMatch(bytes: Uint8Array): CreationCodeMatch | null {
   if (bytes.length === 0) return null;
+  // The opcode gate runs BEFORE the hex encode — both entries of CC_PROLOGUES also begin 0x60, so
+  // this one test fronts both signals below, and a payload that cannot be creation code is refused
+  // without encoding a copy of it first.
+  if (!CC_INIT_OPCODES.includes(bytes[0])) return null;
   const hex = ccCodecs.Hex.encode(bytes, { prefix: false });
 
-  const metadataAt = CC_INIT_OPCODES.includes(bytes[0]) ? ccFindMetadata(hex) : null;
-  if (metadataAt !== null) {
-    // The marker's own length: 6 bytes of tag, 3 of version, 2 of length — 11 bytes, fixed.
-    return { metadataAt, codeEnd: metadataAt + 11 };
+  const metadataAt = ccFindMetadata(hex);
+  // The THIRD corroborating signal, and the one that separates a deploy payload from a call
+  // carrying one. Everything after a creation blob's metadata tail is ABI-encoded constructor
+  // arguments, so it is always a whole number of 32-byte words (or nothing at all). In a CALL that
+  // merely embeds compiled bytecode in a `bytes` argument, the marker sits inside that argument and
+  // is followed by its word padding plus whatever words come after — a whole-word remainder only
+  // when the embedded blob's own length happens to be word-aligned. Without this, any well-formed
+  // calldata whose selector begins 0x60/0x61 (2 of every 256) and whose argument holds bytecode was
+  // summarised as a deploy payload, its head words carved up as code and its selector never
+  // resolved.
+  if (metadataAt !== null && (bytes.length - (metadataAt + CC_METADATA_BYTES)) % CC_WORD_BYTES === 0) {
+    return { metadataAt, codeEnd: metadataAt + CC_METADATA_BYTES };
   }
 
   // No metadata tail: a prologue alone still identifies the payload, but says nothing about where

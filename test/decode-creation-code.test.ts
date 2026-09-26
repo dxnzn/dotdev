@@ -128,9 +128,31 @@ describe('creation-code detection (handoff §6.5 step 7)', () => {
   });
 
   it('refuses to split a tail that is not a whole number of words', () => {
-    const payload = bytesOf(`0x61024060${SOLC_METADATA}${'ab'.repeat(33)}`);
-    const match = cc().match(payload)!;
-    expect(cc().constructorArgs(payload, match.codeEnd)).toBeNull();
+    const payload = bytesOf(`0x61024060${SOLC_METADATA}${'ab'.repeat(64)}`);
+    expect(cc().constructorArgs(payload, payload.length - 33)).toBeNull();
+  });
+
+  // The THIRD corroborating signal. First byte plus marker alone made any well-formed calldata
+  // whose selector begins 0x60/0x61 — 2 of every 256 — a deploy payload as soon as one of its
+  // arguments carried compiled bytecode, which is exactly what a proxy-factory call carries.
+  it('does not fire on a createProxy-shaped call whose bytes argument embeds compiled bytecode', () => {
+    // createProxy(address,bytes): selector 0x61b69abd, an address head word, the bytes offset, the
+    // bytes length, then the blob itself with its metadata tail and one padding byte.
+    const blob = `60806040523480156100${'ab'.repeat(20)}${SOLC_METADATA}`;
+    const blobBytes = blob.length / 2;
+    const padded = `${blob}${'00'.repeat(32 - (blobBytes % 32))}`;
+    const call = bytesOf(`0x61b69abd${word(ADDRESSES[0])}${word('40')}${word(blobBytes.toString(16))}${padded}`);
+
+    expect(cc().looksLikeCreationCode(call)).toBe(false);
+    expect(cc().match(call)).toBeNull();
+  });
+
+  it('still recognises the real payload shape the same test would otherwise have excluded', () => {
+    // The discriminator is the tail AFTER the marker, so §7.4's own payload — marker followed by a
+    // whole number of argument words — is untouched by it.
+    const payload = bytesOf(syntheticDeployPayload());
+    expect(cc().looksLikeCreationCode(payload)).toBe(true);
+    expect(cc().looksLikeCreationCode(bytesOf(`0x61024060${'ab'.repeat(32)}${SOLC_METADATA}`))).toBe(true);
   });
 });
 
