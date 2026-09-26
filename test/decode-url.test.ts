@@ -621,6 +621,36 @@ describe('Copy link — header button (via decode-independent share-target wirin
     removeClipboard();
   });
 
+  // Chromium throws a SecurityError from replaceState at its own URL-length cap. That exception used
+  // to escape pressPlainShare into share-target's catch, which substitutes window.location.href —
+  // so the person was handed a payload-less link and a green confirmation.
+  it('a replaceState the browser refuses still copies the payload-carrying link, not the current URL', async () => {
+    const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {
+      throw new DOMException('URL too long', 'SecurityError');
+    });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installClipboard(writeText);
+
+    const { container, headerBtn, cleanup } = mountWithHeaderButton();
+    const selector = container.querySelector<HTMLSelectElement>('#decode-selector')!;
+    const textarea = container.querySelector<HTMLTextAreaElement>('#decode-textarea')!;
+
+    selector.value = 'hex';
+    textarea.value = HEX_VECTOR;
+    headerBtn.click();
+    await flush();
+
+    expect(replaceState).toHaveBeenCalledTimes(1);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    const copied = writeText.mock.calls[0][0] as string;
+    expect(copied).toContain('decoder=hex');
+    expect(copied).toContain(`data=${encodeURIComponent(HEX_VECTOR)}`);
+
+    cleanup();
+    headerBtn.remove();
+    removeClipboard();
+  });
+
   it('mounting, typing, and decoding without pressing the header button touches neither history nor the clipboard (D-19)', async () => {
     const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     const pushState = vi.spyOn(window.history, 'pushState').mockImplementation(() => undefined);

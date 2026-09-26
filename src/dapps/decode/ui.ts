@@ -1009,7 +1009,19 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // builder (handle.pressPlainShare, below) is now the sole caller.
   function pressPlainShare(): string {
     const url = core!.buildShareUrl(ownRoute, currentDecoderId(), textarea!.value, false);
-    history.replaceState(null, '', url);
+    // The address-bar update is best-effort; the RETURNED url is the contract. Chromium throws a
+    // SecurityError from replaceState at its own URL-length cap (a payload of a few hundred KB
+    // reaches it), and letting that escape put the caller's catch in charge of what got copied —
+    // src/share-target.ts falls back to window.location.href there, so the person was handed a
+    // payload-less link and a green confirmation. Swallowed deliberately and narrowly: the payload
+    // is already in the clipboard-bound string, the size readout and the over-length warning beside
+    // the textarea are what tell the person a plain link this big is not a usable one, and the
+    // compressed action the warning surfaces is the answer.
+    try {
+      history.replaceState(null, '', url);
+    } catch {
+      /* URL too long for this browser's history entry — the link itself is still returned */
+    }
     return url;
   }
 
