@@ -123,6 +123,27 @@ describe('share-target — the untouched shell default (SHARE-05)', () => {
   });
 });
 
+describe('share-target — the shell default on an insecure origin', () => {
+  // navigator.clipboard is undefined outside a secure context, which is the plain-HTTP IPFS-gateway
+  // case this site is designed to serve from. The unguarded default handler threw a synchronous
+  // TypeError there, on every route with no registered override.
+  it('clicking #share-btn with no clipboard and no registration does not throw', () => {
+    removeClipboard();
+
+    expect(() => shareBtn().click()).not.toThrow();
+    expect(shareBtn().classList.contains('copied')).toBe(false);
+  });
+
+  it('a rejected clipboard write shows no confirmation and does not reject unhandled', async () => {
+    installClipboard(vi.fn().mockRejectedValue(new Error('denied')));
+
+    expect(() => shareBtn().click()).not.toThrow();
+    await flush();
+
+    expect(shareBtn().classList.contains('copied')).toBe(false);
+  });
+});
+
 describe('share-target — registration', () => {
   it('a registered builder wins: clicking copies its URL, and window.location.href is never written', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);

@@ -678,3 +678,37 @@ describe("components.css — btn-group sizing and the site's first pressed state
     expect(copyPressed).toBeDefined();
   });
 });
+
+describe('base.css — the report-mode reading column survives the route-driven width', () => {
+  const css = readFileSync(resolve(__dirname, '../src/styles/base.css'), 'utf-8');
+  const rules = extractCssRules(css);
+
+  // a-b-c: ids, then classes/attributes/pseudo-classes, then types. :has() contributes the
+  // specificity of its own argument, which is what made the unprefixed form lose.
+  function specificity(selector: string): [number, number, number] {
+    const flat = selector.replace(/:has\(([^)]*)\)/g, ' $1 ');
+    const ids = (flat.match(/#[\w-]+/g) ?? []).length;
+    const classes = (flat.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) ?? []).length;
+    const types = (flat.match(/(^|[\s>+~])[a-z][\w-]*/g) ?? []).length;
+    return [ids, classes, types];
+  }
+
+  function compare(a: [number, number, number], b: [number, number, number]): number {
+    for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i];
+    return 0;
+  }
+
+  it('the report-mode rule out-specifies the wide route rule, or ties it and comes later', () => {
+    const wide = rules.findIndex((r) => /\[data-layout="wide"\]/.test(r.selector) && /\.app$/.test(r.selector.trim()));
+    const report = rules.findIndex((r) => r.selector.includes('.report-mode'));
+    expect(wide).toBeGreaterThanOrEqual(0);
+    expect(report).toBeGreaterThanOrEqual(0);
+
+    const delta = compare(specificity(rules[report].selector), specificity(rules[wide].selector));
+    // A plain `.app:has(.report-mode)` is 0-2-0 against the wide rule's 0-2-1 and loses outright,
+    // whatever the order — which left /tools/cic/report rendering at the full 1280px.
+    expect(delta >= 0 || report > wide).toBe(true);
+    expect(delta).toBeGreaterThanOrEqual(0);
+    expect(readCssDeclaration(rules[report].block, 'max-width')).toBe('820px');
+  });
+});

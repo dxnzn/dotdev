@@ -199,10 +199,20 @@ function wireShareButton() {
   if (!shareBtn) return;
 
   shareBtn.addEventListener('click', function () {
-    navigator.clipboard.writeText(window.location.href).then(() => {
-      this.classList.add('copied');
-      setTimeout(() => this.classList.remove('copied'), 1500);
-    });
+    // Property-guarded, for the same reason src/share-target.ts and src/shell-wallet.ts guard their
+    // own writes: navigator.clipboard is undefined outside a secure context, and this site is
+    // explicitly servable from plain-HTTP IPFS gateways. Unguarded, the whole handler threw a
+    // synchronous TypeError on every route with no registered share override. No confirmation
+    // unless the write actually resolved — a green flash over a clipboard that still holds
+    // something else is the one outcome worse than a dead button.
+    if (typeof navigator.clipboard?.writeText !== 'function') return;
+    navigator.clipboard
+      .writeText(window.location.href)
+      .then(() => {
+        this.classList.add('copied');
+        setTimeout(() => this.classList.remove('copied'), 1500);
+      })
+      .catch(() => undefined);
   });
 }
 
