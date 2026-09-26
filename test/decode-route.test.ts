@@ -182,6 +182,21 @@ describe('main.ts wiring — the canonicalizer runs before the shell is construc
     expect(listenAt).toBeGreaterThan(-1);
     expect(listenAt).toBeLessThan(shellAt);
   });
+
+  // The router listens on popstate too, and a back/forward traversal fires it BEFORE hashchange —
+  // so a canonicalizer registered only on hashchange lets that traversal reach the router with the
+  // query still unseparated, which resolves to nothing and unmounts the dapp.
+  it('registers canonicalizeHashQuery as a popstate listener too, before createShell', () => {
+    const listenAt = mainSource.indexOf("addEventListener('popstate', canonicalizeHashQuery)");
+    const shellAt = mainSource.indexOf('DxKit.createShell(');
+    expect(listenAt).toBeGreaterThan(-1);
+    expect(listenAt).toBeLessThan(shellAt);
+  });
+
+  it.skipIf(!hasVendoredRouter)('the vendored router this canonicalizer runs ahead of listens on popstate', () => {
+    const vendor = readFileSync(VENDOR_ROUTER_PATH, 'utf-8');
+    expect(vendor).toContain('addEventListener("popstate"');
+  });
 });
 
 describe('portability — the canonicalization never lives inside the decode dapp directory', () => {

@@ -58,6 +58,14 @@ function canonicalizeHashQuery(): void {
 }
 
 canonicalizeHashQuery();
+// BOTH events, and for the same reason the registration order above matters: the vendored router
+// listens on 'popstate' as well as 'hashchange' (src/vendor/dxkit/index.global.js:600-604), and a
+// back/forward traversal across a hash route fires popstate FIRST. With only the hashchange
+// registration, that traversal reached the router with the query still unseparated, resolved to no
+// manifest, and unmounted the dapp — then hashchange canonicalized and the router remounted it from
+// scratch, losing the result tree and the dapp's in-flight work to what should have been a subpath
+// update. replaceState inside a popstate handler fires neither event, so this cannot loop.
+window.addEventListener('popstate', canonicalizeHashQuery);
 window.addEventListener('hashchange', canonicalizeHashQuery);
 
 // SHARE-04: routes the header share button through decode's plain-link press while decode is
