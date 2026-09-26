@@ -50,10 +50,23 @@ the tree is deployed to GitHub Pages and is servable from IPFS unchanged. See
   because the portability guard's source scan permits exactly one named exemption and asserts
   every call site inside it sits inside `netRequest`, the one function that also writes the log
   entry; every other file, including the four other Phase 5 additions, is still forbidden the
-  network primitive outright. Built to be portable into any DxKit shell
-  (`requires.plugins: ["settings"]`, `standalone: false`, no `Dnzn*`-prefixed identifier anywhere
-  in the directory) and a source-scanning guard (`test/decode-portability.test.ts`) enforces that
-  posture on every change. See `src/dapps/decode/README.md`.
+  network primitive outright. Phase 6 added four more modules: `annotators.ts` (the bounded
+  cross-call recursion pass, the operation-argument annotator, and the progressive contract-name
+  walk that patches a resolved name into the tree without blocking the initial render — ETH-12),
+  `abi-source.ts` (the verified-ABI source and its one-level proxy follow), `cache.ts` (the
+  two-tier verified-ABI cache — the guard's THIRD named exemption, `localStorage` confined to this
+  one file's `cchCreatePersistenceAccess`, alongside `fetch`/`transport.ts` and `href`/`ui.ts`),
+  and `tx-source.ts` (the transaction lookup, the user's own RPC endpoint first, the explorer's
+  proxy module second) — taking the directory from 14 shipped modules to 18. A nineteenth,
+  `creation-code.ts`, landed after Phase 6's UAT surfaced the gap it closes: it recognises contract
+  creation bytecode and splits its constructor words off the compiled blob (REF-01's §7.4 slice).
+  It is **not** a decoder and registers nothing — a deploy payload is usually an argument, so
+  `decoders-eth-calldata.ts` calls it for a top-level paste and `annotators.ts` calls it as the
+  guard that must run BEFORE a `bytes` argument is grafted as a nested call. Built to be portable
+  into any DxKit shell (`requires.plugins: ["settings"]`, `standalone: false`, no `Dnzn*`-prefixed
+  identifier anywhere in the directory) and a source-scanning guard
+  (`test/decode-portability.test.ts`) enforces that posture on every change. See
+  `src/dapps/decode/README.md`.
 - `src/plugins/` — dotdev-local DxKit plugin factories (`ethereum.ts`), registered
   in `src/main.ts` and loaded by their own `<script>` tag in `src/index.html` before
   `main.js` — a plugin factory has to exist at shell-construction time and there is no
@@ -100,8 +113,12 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   them. Phase 5 is the second proof and the stronger one: it added five more modules
   (`keccak.ts`, `abi.ts`, `signatures.ts`, `transport.ts`, `decoders-eth-calldata.ts`), again with
   no `.gitignore` change, confirming the glob covers every non-entry module in the directory
-  rather than a set fixed at whatever count existed when the glob was written. Two literal
-  per-file lines also exist today for top-level modules, `src/wallet-identity.js`
+  rather than a set fixed at whatever count existed when the glob was written.
+
+  Phase 6 is the third proof: it added `annotators.ts`, `abi-source.ts`, `cache.ts` and
+  `tx-source.ts` to the directory — four new modules — again with no `.gitignore` change, the same
+  directory-glob line already covering every one of them with nothing added or counted by hand.
+  Two literal per-file lines also exist today for top-level modules, `src/wallet-identity.js`
   and `src/shell-wallet.js`.
 - **No runtime dependencies and no CDN scripts.** Anything needed is implemented
   in-repo; the IPFS-servable, no-build-at-runtime posture depends on it.
@@ -144,13 +161,16 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   `getComputedStyle` once and memoises them, so a theme change must invalidate
   that cache or the chart keeps painting the old palette.
 - **`BUILD_VERSION` auto-increments** on `make dist` / `make dist-history-stubs`.
-- **The decode portability guard (`test/decode-portability.test.ts`) has exactly two named
+- **The decode portability guard (`test/decode-portability.test.ts`) has exactly three named
   exemptions, each file-and-function scoped, not directory-wide.** `fetch` is permitted only in
   `src/dapps/decode/transport.ts`, and only inside `netRequest`, the one function that also
-  writes the log entry; `href` is permitted only inside `ui.ts`'s `uiCreateExternalLink`. A future
-  decoder that needs to reach the network or construct a link cannot add its own call site — it
-  must route through `transport.ts`'s `createTransport()` or `ui.ts`'s existing link helper. Both
-  exemptions are asserted to have exactly one entry, so adding a second exempt file or helper
-  requires deliberately widening the allowlist, not just writing the code — the guard's failure
-  message alone (a plain "unlisted global" or network-identifier violation) won't explain this
-  design; this note is the explanation.
+  writes the log entry; `href` is permitted only inside `ui.ts`'s `uiCreateExternalLink`;
+  `localStorage` is permitted only inside `src/dapps/decode/cache.ts`'s
+  `cchCreatePersistenceAccess`, the one function every persistence call site sits inside (D-12,
+  ratified at Plan 04's own blocking checkpoint — NET-08's verified-ABI cache). A future decoder
+  that needs to reach the network, construct a link, or persist something cannot add its own call
+  site — it must route through `transport.ts`'s `createTransport()`, `ui.ts`'s existing link
+  helper, or `cache.ts`'s own factory. All three exemptions are asserted to have exactly one
+  entry, so adding a second exempt file or helper requires deliberately widening the allowlist,
+  not just writing the code — the guard's failure message alone (a plain "unlisted global" or
+  network/storage-identifier violation) won't explain this design; this note is the explanation.

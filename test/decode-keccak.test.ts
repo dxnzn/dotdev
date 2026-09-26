@@ -45,8 +45,12 @@ describe('keccak-256 is Ethereum keccak, not SHA3-256 (D-18)', () => {
 });
 
 // D-18's verified selector round-trips — every one independently corroborated against handoff
-// §7.4 and, for the two `f(...)` entries, the Solidity spec's own worked examples.
-describe('keccak.selector — the eight verified round-trips (D-18, TST-01)', () => {
+// §7.4 and, for the two `f(...)` entries, the Solidity spec's own worked examples. 06-01 (D-07)
+// extends this table with the six selectors it writes into signatures.ts's local table — this
+// is what turns "every added selector was re-derived with this repo's own keccak port before it
+// was written" from an instruction someone followed once into a committed gate that fails if any
+// entry drifts (T-06-04's mitigation).
+describe('keccak.selector — the fourteen verified round-trips (D-18, TST-01)', () => {
   const ROUND_TRIPS: [signature: string, selector: string][] = [
     ['transfer(address,uint256)', '0xa9059cbb'],
     ['approve(address,uint256)', '0x095ea7b3'],
@@ -56,6 +60,13 @@ describe('keccak.selector — the eight verified round-trips (D-18, TST-01)', ()
     ['deployNext(bytes,bytes32)', '0x48215787'],
     ['f(uint256,uint32[],bytes10,bytes)', '0x8be65246'],
     ['f((uint256,uint256[],(uint256,uint256)[]),(uint256,uint256),uint256)', '0x6f2be728'],
+    // 06-01 (D-07): the six selectors written into signatures.ts's local table this plan.
+    ['executeByVotes(uint8,address,uint256,bytes,bytes32)', '0xee5b2895'],
+    ['setPermit(uint8,address,uint256,bytes,bytes32,address,uint256)', '0x12374b04'],
+    ['spendPermit(uint8,address,uint256,bytes,bytes32)', '0xa8841366'],
+    ['multicall(bytes[])', '0xac9650d8'],
+    ['aggregate((address,bytes)[])', '0x252dba42'],
+    ['execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)', '0x6a761202'],
   ];
 
   it.each(ROUND_TRIPS)('%s -> %s', (signature, expectedSelector) => {

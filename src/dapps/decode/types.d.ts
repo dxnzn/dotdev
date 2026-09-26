@@ -18,6 +18,9 @@ type DecodeNode = {
   label: string;
   type?: string;
   value?: string | number | bigint | null;
+  // Three of these modes — address, txhash and text — render `value` in preference to `raw`,
+  // because for them the two deliberately differ (a shortened address, an ABI string whose raw
+  // is the hex of its bytes). The rest render `raw`, and copy always does.
   display?: 'address' | 'txhash' | 'hex' | 'int' | 'text' | 'json' | 'bool';
   annotations?: string[];
   provenance?: 'verified' | 'registry' | 'unresolved' | 'local';
@@ -59,19 +62,42 @@ type DecodeNode = {
 // wants; 'hex-dump' is the only value this phase implements (D-16). D-16 already promises
 // Phase 4 a second one ('abi-words', TXT-05), selected by the decoder — so this member is a
 // contract term this phase owes, not scope added to it.
+//
+// Phase 6 Task 0 (D-14): onNodeUpdate is the ETH-12 patch-in channel — the decode resolves
+// immediately, the decoder keeps mutating the SAME node objects the renderer already drew, and
+// each notification names one node and the single annotation string just appended to it. Two
+// alternatives were rejected: a whole-tree re-render channel (`pending: Promise<void>`) and a
+// progressive whole-tree `onUpdate` both end in a second `renderNode(...)` call, and collapse
+// state lives only in the DOM (`ui.ts`'s disclosure handler mutates `aria-expanded` and a class
+// and writes nothing back to the node), so either would discard the user's own expansion — D-15's
+// failure this channel exists to avoid.
+//
+// No replay buffer, and none is needed: a name that resolves BEFORE the renderer subscribes is
+// already in `node.annotations` and is drawn by the first render pass, because the decoder
+// mutates the very node objects the renderer is handed; a name that resolves after subscribe is
+// patched via this channel. Render and subscribe are synchronous in the same turn, so there is no
+// gap for a buffer to cover. The property this channel guarantees is therefore "every node whose
+// name arrives after subscription is notified exactly once" — not "every named node is
+// notified", which the immediate-cache-hit case does not satisfy.
 interface DecodeOutput {
   node: DecodeNode;
   rawBytes?: Uint8Array | null;
   rawView?: string;
+  onNodeUpdate?: (listener: (node: DecodeNode, annotation: string) => void) => () => void;
 }
 
 // What DecodeService.decode(...) resolves to. `stale` is the discriminator that lets a caller
 // drop a superseded decode without string-matching an error message's text.
+//
+// Phase 6 Task 0: onNodeUpdate is the same channel as DecodeOutput's own member, passed through
+// by createDecodeService so the ui module can subscribe without reaching into DecodeOutput
+// directly.
 interface DecodeRunResult {
   node: DecodeNode;
   rawBytes: Uint8Array | null;
   rawView: string;
   stale: boolean;
+  onNodeUpdate?: (listener: (node: DecodeNode, annotation: string) => void) => () => void;
 }
 
 // ── Ports (handoff §5.1, narrowed/extended per CONTEXT.md D-04/D-06/D-12) ───────────────
@@ -96,6 +122,10 @@ interface DecodeContext {
   transport?: TransportPort;
   abis?: AbiSourcePort;
   signatures?: SignatureLookupPort;
+  // Phase 6 Task 0: the ONE further optional member this phase adds to DecodeContext — the
+  // existing five (transport, abis, signatures, target, settingsRoute) are otherwise untouched.
+  // A transaction-hash lookup by hash, for ETH-08's tx-hash auto-detect rung.
+  txSource?: TxSourcePort;
   // The contract address the call was sent to, when one is known. What AbiSourcePort.getAbi is
   // called with. A single pasted calldata blob has no target, so this phase has no production
   // supplier and the verified rung is stub-only — deliberately (see AbiSourcePort's own comment).
@@ -186,6 +216,23 @@ interface SettingsPort {
 
 // A transport-level request. `dedupe` lets a caller opt an identical in-flight request into
 // sharing one network call rather than racing two.
+//
+// Phase 6 Task 0 additions, all optional:
+// - `maxBytes` (D-10): a per-request override of the transport's global 64 KB body cap. Without
+//   it, the transport's cap truncates silently at the port level — `ok` stays true on an HTTP
+//   200, the JSON parse fails internally and the parsed member becomes null — and the explorer's
+//   source-code endpoint inlines a contract's entire Solidity source in the same JSON object, so
+//   every large verified contract would resolve as "no ABI" and roadmap criterion 2 would fail
+//   by contract size.
+// - `logUrl`/`logBody`: privacy contracts, not conveniences. `netRedactUrl` masks only an exact
+//   `apikey` query parameter (transport.ts), so a user's own RPC endpoint carrying a credential
+//   in userinfo, in another query key, or in a path segment is recorded in the clear today; the
+//   transport cannot infer which parts of a stranger's URL are secret, so the ADAPTER that knows
+//   the URL is arbitrary free text declares the safe representation instead — Plan 05's endpoint
+//   leg is its first consumer. The same is true of `logBody`: the transport records `req.body`
+//   VERBATIM, so nothing leaks today only because the one POST this phase issues carries a
+//   transaction hash and nothing else; the recorded body is NOT redacted unless a caller
+//   supplies `logBody`.
 interface HttpRequest {
   method: 'GET' | 'POST';
   url: string;
@@ -195,6 +242,9 @@ interface HttpRequest {
   timeoutMs?: number;
   signal?: AbortSignal;
   dedupe?: boolean;
+  maxBytes?: number;
+  logUrl?: string;
+  logBody?: string;
 }
 
 // `ok` is TRANSPORT-LEVEL success, deliberately NOT `Response.ok` (HTTP 2xx). D-10: Etherscan
@@ -202,6 +252,12 @@ interface HttpRequest {
 // `{"status":"0",...}` — a consumer that branches on `status`/`Response.ok` treats every one of
 // those failures as a success. `ok: false` with `error` set is what NET-04's retry logic and the
 // Log tab actually key off.
+//
+// Phase 6 Task 0: `truncated` is not decoration. With a per-request ceiling in play, "the body
+// exceeded the ceiling you asked for" and "the body was malformed or absent" both currently
+// collapse into a null parsed member, and the ABI adapter must report them differently — one is
+// a tuning problem the user can act on, the other is a genuine unverified contract. Not on 04
+// D-05's frozen list, so this is an ordinary additive change.
 interface HttpResponse {
   status: number;
   body: string;
@@ -209,6 +265,7 @@ interface HttpResponse {
   attempts: number;
   ok: boolean;
   error?: string;
+  truncated?: boolean;
 }
 
 // D-13/D-15: dotdev's own transport — DxKit has no HTTP port to reuse. `transport.ts` is the
@@ -231,13 +288,56 @@ interface AbiItem {
   inputs: AbiInput[];
 }
 
+// Phase 6 Task 0 (D-08, Round 2 HIGH): both network ports take an OPTIONS OBJECT as their
+// second parameter — never a chain of positional optionals. Round 2's review found the
+// positional form ambiguous across three plans: this plan could make the signal a third
+// parameter while other plans said to "omit the chain-id argument entirely" and pass the
+// signal — which positionally is either a compile error or a signal silently read as a chain id,
+// because `getAbi`'s second parameter was the chain id. An options object removes the trap
+// rather than documenting around it: there is no position to get wrong, no caller has to spell
+// an explicit `undefined` to reach the signal, and a later phase can add a third option without a
+// fourth positional slot. Every call site in this phase calls `getAbi` with a target and an
+// options object carrying only `signal` — the chain id is the adapter's to resolve from its own
+// settings closure (D-08), so no caller passes one.
+//
+// `signal` exists because the CALLER owns the decode's lifetime and the adapter does not.
+// DecodeContext already owns a signal and HttpRequest already accepts one, but the transport's
+// per-caller detachment only fires when a signal is actually passed — so without this, a
+// recursive verified-ABI lookup would survive navigation, unmount and a second Decode press.
+interface AbiLookupOptions {
+  chainId?: number | string;
+  signal?: AbortSignal;
+}
+
+interface TxLookupOptions {
+  // The endpoint leg does not need this at all — a JSON-RPC eth_getTransactionByHash takes only
+  // the hash. It exists solely for the explorer fallback, which is why an endpoint-only
+  // configuration with no chain setting must still work.
+  chainId?: number | string;
+  signal?: AbortSignal;
+}
+
 // D-06: the verified-provenance rung. `address` is supplied from DecodeContext.target (below) —
 // this phase has no production supplier for `target` (a single pasted calldata blob has no
 // target address), so the rung is exercised against a stub here; Phase 6's ETH-08 transaction
 // input is what fills it for real. Resolves `null` when unavailable or unconfigured; never
 // rejects.
 interface AbiSourcePort {
-  getAbi(address: string, chainId: number): Promise<{ name: string; abi: AbiItem[] } | null>;
+  getAbi(address: string, options?: AbiLookupOptions): Promise<{ name: string; abi: AbiItem[] } | null>;
+}
+
+// The result-object shape (not a bare `| null`) is deliberate and copies SignatureLookupResult's
+// established "could not ask" versus "asked and missed" distinction — exactly what ETH-08's
+// "reports a clear error when neither an RPC URL nor an API key is configured" needs. Never
+// rejects, matching every other port in this file.
+interface TxLookupResult {
+  transaction?: { to: string | null; input: string; from: string };
+  unavailable: boolean;
+  reason?: string;
+}
+
+interface TxSourcePort {
+  getTransaction(hash: string, options?: TxLookupOptions): Promise<TxLookupResult>;
 }
 
 interface SignatureCandidate {
@@ -298,6 +398,8 @@ interface DecodeServiceOptions {
   transport?: TransportPort;
   abis?: AbiSourcePort;
   signatures?: SignatureLookupPort;
+  // Phase 6 Task 0: the ONE optional member this phase adds here, mirroring DecodeContext.
+  txSource?: TxSourcePort;
   target?: string;
   settingsRoute?: string;
 }
@@ -542,6 +644,99 @@ interface DxDecodeTransportModule {
   createTransport(options: unknown): TransportPort;
 }
 
+// ── Phase 6 module-shaped interfaces (Task 0, one per new per-module sub-key) ────────────
+//
+// Each declares EVERY member its file ends the phase with — not only what this plan (06-01)
+// attaches — so a later plan's addition is a passthrough, never a second edit to this file.
+// Every member is optional so an intermediate assignment (this plan implements only a subset)
+// still typechecks.
+
+// REF-01's §7.4 slice (handoff §6.5 step 7). Pure: no ctx, no network, no DOM.
+interface DxDecodeCreationCodeModule {
+  // The guard handoff §6.5 step 5 demands before a bytes argument may be grafted as a nested call.
+  looksLikeCreationCode(bytes: Uint8Array): boolean;
+  // The same answer with its detail — where the solc metadata tail sits (null when only an init
+  // prologue matched) and where the compiled blob ends.
+  match(bytes: Uint8Array): { metadataAt: number | null; codeEnd: number } | null;
+  // Re-identifies `node` in place as a deploy payload; false when `bytes` is not creation code.
+  expand(node: DecodeNode, bytes: Uint8Array): boolean;
+  // The constructor words alone — null when the tail is not a whole number of 32-byte words.
+  constructorArgs(bytes: Uint8Array, codeEnd: number): DecodeNode[] | null;
+}
+
+interface DxDecodeAnnotatorsModule {
+  // 06-01 (this plan): the bounded recursion pass.
+  // The implementation (annotators.ts) accepts a further optional, defaulted 4th `budget`
+  // parameter for its own internal recursive self-calls — not part of this public contract,
+  // and every external caller (decoders-eth-calldata.ts) calls this with exactly three
+  // arguments, which stays valid function-type-compatible with an implementation that accepts
+  // more optional parameters than its declared type names.
+  recurse?: (
+    root: DecodeNode,
+    target: string | undefined,
+    resolve: (
+      selector: string,
+      target: string | undefined,
+    ) => Promise<
+      | { ok: true; name: string; types: TypeNode[]; provenance: 'verified' | 'local' | 'registry' }
+      | { ok: false; unavailable: boolean; reason?: string }
+    >,
+  ) => Promise<void>;
+  // 06-02: ETH-13's operation annotator.
+  annotateTree?: (root: DecodeNode) => void;
+  annotateOp?: (node: DecodeNode) => void;
+  // 06-06 Task 1 deviation (Rule 3 — blocking, same shape as 06-01 Task 1 Deviation 2 and 06-03/
+  // 06-05's own module-shaped widenings): widened from Task 0's one-parameter placeholder
+  // (`(root, names: Map<string,string>) => void`), which assumed the names were already known
+  // and synchronous. The real shape is two functions, deliberately separate: a synchronous,
+  // pure collector with no lookup and no notification (so it can be reasoned about and tested on
+  // its own), and an async patcher that starts one lookup per distinct address CONCURRENTLY,
+  // appends a `(name)` annotation to every node sharing a resolved address, and calls `notify`
+  // once per patched node. An additive concession to a module-shaped interface, not the frozen
+  // render/service contract.
+  collectAddressNodes?: (root: DecodeNode) => Map<string, DecodeNode[]>;
+  patchContractNames?: (
+    nodesByAddress: Map<string, DecodeNode[]>,
+    lookup: (address: string) => Promise<string | null | undefined>,
+    notify: (node: DecodeNode, annotation: string) => void,
+    signal: AbortSignal,
+  ) => Promise<void>;
+}
+
+interface DxDecodeAbiSourceModule {
+  // 06-03/06-04: the Etherscan verified-ABI adapter, attached by a later plan.
+  //
+  // 06-03 Task 2 deviation (Rule 3 — blocking, same shape as 06-01 Task 1 Deviation 2): this
+  // member's signature grew a second required parameter, `settings`, beyond what Task 0
+  // provisionally declared. D-08 requires the adapter to read `etherscanApiKey`/`chainId` from
+  // its OWN closure over a SettingsPort, per call, exactly like createLiveExplorerLinks
+  // (ui.ts) — there is no other channel by which a per-mount SettingsPort instance can reach
+  // this factory. Both the handoff (`decoder-dapp-handoff.md` §5.4:
+  // `EtherscanAbiAdapter(transport, settings)`) and RESEARCH.md's own Pattern 3 code example
+  // already show two parameters; Task 0's one-parameter placeholder predates both being read
+  // closely. An additive concession to a module-shaped interface (not the frozen render/service
+  // contract), recorded here rather than left implicit.
+  createEtherscanAbiSource?(transport: TransportPort, settings: SettingsPort): AbiSourcePort;
+}
+
+interface DxDecodeTxSourceModule {
+  // 06-05 Task 1: ONE combined adapter that tries the user's own endpoint first, then the
+  // explorer fallback, internally — never two separately-constructed ports a caller would have
+  // to compose itself. Widened from Task 0's `createRpcTxSource`/`createExplorerTxSource`
+  // placeholder for the same reason Plan 03 widened `createEtherscanAbiSource` (see that
+  // interface's own comment): an additive concession to a module-shaped interface, not the
+  // frozen render/service contract (`DecodeNode`/`DecodeOutput`/`DecoderPort`/`DecodeContext`/
+  // `DecodeRunResult`/`renderNode`). `settings` is required for the same reason
+  // `createEtherscanAbiSource` takes one — both legs' credentials are read from it per call.
+  txsCreateAdapter?(transport: TransportPort, settings: SettingsPort): TxSourcePort;
+}
+
+interface DxDecodeCacheModule {
+  // 06-04 (D-12, recommended — see 06-01-SUMMARY.md's D-12 record; Plan 04's own blocking
+  // checkpoint is what settles it): a browser-local cache for verified-ABI/tx lookups.
+  createCache?(): unknown;
+}
+
 // The shared namespace type. Every sub-key is optional — not only the ones a later plan
 // attaches — because every runtime module in this directory opens with
 // `window.DxDecode ??= {}`, and that assignment only typechecks against a type whose every
@@ -565,6 +760,12 @@ interface DxDecodeNamespace {
   abi?: DxDecodeAbiModule;
   signatures?: DxDecodeSignaturesModule;
   transport?: DxDecodeTransportModule;
+  // Phase 6 Task 0: every new module this phase adds, optional like every existing sub-key.
+  annotators?: DxDecodeAnnotatorsModule;
+  abiSource?: DxDecodeAbiSourceModule;
+  txSource?: DxDecodeTxSourceModule;
+  cache?: DxDecodeCacheModule;
+  creationCode?: DxDecodeCreationCodeModule;
 }
 
 // dotdev's dapp namespace, not a DxKit framework namespace — the `Dx*` prefix has so far

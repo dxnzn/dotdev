@@ -150,6 +150,17 @@ function extractStringLiterals(source: string): string[] {
   return literals;
 }
 
+// 06-06 Task 2: finds the row for a given label — used by the patch-mechanism suite below to
+// locate a specific node's row without depending on the tree's own DOM structure/ordering.
+// Throws (rather than returning undefined) so a test with a wrong label fails loudly at the
+// point of the lookup, not at a confusing later assertion.
+function findRowByLabel(container: HTMLElement, label: string): HTMLElement {
+  const rows = Array.from(container.querySelectorAll<HTMLElement>('.decode-tree-row'));
+  const row = rows.find((r) => r.querySelector('.decode-tree-label')?.textContent === label);
+  if (!row) throw new Error(`no row found for label "${label}"`);
+  return row;
+}
+
 beforeAll(() => {
   for (const relPath of loadManifestDependencies()) {
     loadCompiled(relPath);
@@ -410,6 +421,97 @@ describe('the generic DecodeNode tree renderer (Task 1)', () => {
     }
   });
 
+  it('a text node whose value and raw diverge renders the value — the ABI-decoded string case', () => {
+    const node: DecodeNode = { label: 'arg0', type: 'string', value: 'Z', raw: '0x5a', display: 'text' };
+    const value = ui().renderNode(node).querySelector('.decode-tree-value');
+    expect(value?.textContent).toBe('Z');
+  });
+
+  it('folds an over-long value to a head-and-tail stand-in and offers an expand control', () => {
+    const long = `0x${'ab'.repeat(400)}`;
+    const el = ui().renderNode({ label: 'code', type: 'bytes', value: long, raw: long });
+    const value = el.querySelector('.decode-tree-value')!;
+    const expand = el.querySelector<HTMLButtonElement>('.decode-tree-expand')!;
+
+    expect(value.textContent!.length).toBeLessThan(long.length);
+    expect(value.textContent).toContain('…');
+    expect(value.textContent!.startsWith(long.slice(0, 66))).toBe(true);
+    expect(value.textContent!.endsWith(long.slice(-32))).toBe(true);
+    expect(expand).not.toBeNull();
+    expect(expand.getAttribute('aria-expanded')).toBe('false');
+    expect(expand.title).toBe(`${long.length} characters`);
+    // A folded value gets the expand control INSTEAD of a title carrying thousands of characters.
+    expect(value.getAttribute('title')).toBeNull();
+    // The growth class is what keeps the control beside the value rather than wrapped below it.
+    expect(value.classList.contains('decode-tree-value-foldable')).toBe(true);
+    // The control follows the value in the row, never precedes it.
+    expect(value.nextElementSibling).toBe(expand);
+  });
+
+  it('a value that does not fold never claims the row width — the link and badge stay beside it', () => {
+    const el = ui().renderNode({ label: 'n', value: '42', provenance: 'local' });
+    expect(el.querySelector('.decode-tree-value')!.classList.contains('decode-tree-value-foldable')).toBe(false);
+  });
+
+  it('the expand control reveals the whole value and folds it again, without touching the children disclosure', () => {
+    const long = `0x${'cd'.repeat(400)}`;
+    const el = ui().renderNode({
+      label: 'code',
+      type: 'bytes',
+      value: long,
+      raw: long,
+      children: [{ label: 'inner', value: '1' }],
+    });
+    const value = el.querySelector('.decode-tree-value')!;
+    const expand = el.querySelector<HTMLButtonElement>('.decode-tree-expand')!;
+    const disclosure = el.querySelector('.decode-tree-disclosure')!;
+
+    expand.click();
+    expect(expand.getAttribute('aria-expanded')).toBe('true');
+    expect(expand.textContent).toBe('less');
+    expect(value.textContent).toBe(long);
+    // The two disclosures are independent: expanding the value must not touch the children one.
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+
+    expand.click();
+    expect(expand.getAttribute('aria-expanded')).toBe('false');
+    expect(expand.textContent).toBe('more');
+    expect(value.textContent).not.toBe(long);
+  });
+
+  it('a folded value still copies in full — the fold is display only', async () => {
+    const long = `0x${'ef'.repeat(400)}`;
+    const writeText = installClipboard(vi.fn(() => Promise.resolve()));
+    const el = ui().renderNode({ label: 'code', type: 'bytes', value: long, raw: long });
+    document.body.append(el);
+    el.querySelector<HTMLButtonElement>('.decode-tree-value')!.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledWith(long);
+    el.remove();
+  });
+
+  it('a value at or under the fold threshold renders whole with no expand control', () => {
+    const short = `0x${'ab'.repeat(63)}`;
+    expect(short.length).toBeLessThanOrEqual(128);
+    const el = ui().renderNode({ label: 'word', type: 'bytes', value: short, raw: short });
+    expect(el.querySelector('.decode-tree-value')!.textContent).toBe(short);
+    expect(el.querySelector('.decode-tree-expand')).toBeNull();
+  });
+
+  it('a shortened address is never folded — its display text is already a stand-in', () => {
+    const el = ui().renderNode({
+      label: 'to',
+      type: 'address',
+      display: 'address',
+      value: '0x5e58ba0e...74053e',
+      raw: '0x5e58ba0e06ed0f5558f83be732a4b899a674053e',
+    });
+    expect(el.querySelector('.decode-tree-expand')).toBeNull();
+    expect(el.querySelector<HTMLElement>('.decode-tree-value')!.title).toBe(
+      '0x5e58ba0e06ed0f5558f83be732a4b899a674053e',
+    );
+  });
+
   it('renders through the default when a node carries no display mode', () => {
     const value = ui().renderNode({ label: 'x', value: 'plain' }).querySelector('.decode-tree-value');
     expect(value?.textContent).toBe('plain');
@@ -453,6 +555,265 @@ describe('the generic DecodeNode tree renderer (Task 1)', () => {
     const sharedSelectors = extractCssSelectors(sharedCss);
     const overlap = [...decodeSelectors].filter((s) => sharedSelectors.has(s));
     expect(overlap).toEqual([]);
+  });
+});
+
+describe('the progressive contract-name patch — one row, no rebuild (06-06 Task 2)', () => {
+  afterEach(() => {
+    removeClipboard();
+  });
+
+  async function runDecodeAndFlush(container: HTMLElement, decoderId: string): Promise<void> {
+    container.querySelector<HTMLSelectElement>('#decode-selector')!.value = decoderId;
+    container.querySelector<HTMLTextAreaElement>('#decode-textarea')!.value = 'anything';
+    container.querySelector<HTMLButtonElement>('#decode-run-btn')!.click();
+    await flush();
+  }
+
+  // Registers a probe decoder whose result carries an update channel this test drives directly
+  // (`deliver`) rather than through a real decode — the renderer suite stays free of decoder
+  // specifics, per the plan's own instruction, and the existing rule forbidding a decoder id as
+  // a string literal in ui.ts is untouched (this id lives only in the test file).
+  function registerPatchProbe(id: string, node: DecodeNode): { deliver: (n: DecodeNode, a: string) => void } {
+    let listener: ((n: DecodeNode, a: string) => void) | undefined;
+    window.DxDecode!.registry!.register({
+      id,
+      label: 'patch probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async () => ({
+        node,
+        onNodeUpdate: (l: (n: DecodeNode, a: string) => void) => {
+          listener = l;
+          return () => {
+            listener = undefined;
+          };
+        },
+      }),
+    });
+    return { deliver: (n, a) => listener?.(n, a) };
+  }
+
+  it("a name delivered for a node inside an expanded nested branch leaves the branch expanded, with the new annotation on that node's own row", async () => {
+    const probeId = 'patch-probe-expanded';
+    const targetNode: DecodeNode = { label: 'target', value: 'x' };
+    const nestedChild: DecodeNode = { label: 'nested', collapsed: true, children: [targetNode] };
+    const rootNode: DecodeNode = { label: 'root', children: [nestedChild] };
+    const probe = registerPatchProbe(probeId, rootNode);
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+
+    // Root also carries a disclosure (it has children too) — locate the NESTED branch's own,
+    // via its own row, rather than the first disclosure button in the container.
+    const nestedRow = findRowByLabel(container, 'nested');
+    const disclosure = nestedRow.querySelector<HTMLButtonElement>('.decode-tree-disclosure')!;
+    disclosure.click(); // expand the nested branch
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+    const childrenEl = nestedRow.parentElement!.querySelector<HTMLElement>(':scope > .decode-tree-children')!;
+    expect(childrenEl.classList.contains('decode-tree-collapsed')).toBe(false);
+
+    probe.deliver(targetNode, '(Loot)');
+
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+    expect(childrenEl.classList.contains('decode-tree-collapsed')).toBe(false);
+    const targetRow = findRowByLabel(container, 'target');
+    const annotations = targetRow.querySelectorAll('.decode-tree-annotation');
+    expect(annotations.length).toBe(1);
+    expect(annotations[0].textContent).toBe('(Loot)');
+
+    cleanup();
+  });
+
+  it('captures rowBefore/childrenBefore and both are toBe-identical after a delivered name, with exactly one new annotation span', async () => {
+    const probeId = 'patch-probe-identity';
+    const targetNode: DecodeNode = { label: 'target', children: [{ label: 'leaf', value: 1 }] };
+    const rootNode: DecodeNode = { label: 'root', children: [targetNode] };
+    const probe = registerPatchProbe(probeId, rootNode);
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+
+    const rowBefore = findRowByLabel(container, 'target');
+    const wrapperEl = rowBefore.parentElement!;
+    const childrenBefore = wrapperEl.querySelector<HTMLElement>(':scope > .decode-tree-children')!;
+    const annotationCountBefore = rowBefore.querySelectorAll('.decode-tree-annotation').length;
+
+    probe.deliver(targetNode, '(Loot)');
+
+    const rowAfter = findRowByLabel(container, 'target');
+    expect(rowAfter).toBe(rowBefore);
+    const childrenAfter = wrapperEl.querySelector<HTMLElement>(':scope > .decode-tree-children')!;
+    expect(childrenAfter).toBe(childrenBefore);
+    expect(rowBefore.querySelectorAll('.decode-tree-annotation').length).toBe(annotationCountBefore + 1);
+
+    cleanup();
+  });
+
+  it('delivering a name for a node absent from the current tree does nothing and throws nothing', async () => {
+    const probeId = 'patch-probe-absent';
+    const rootNode: DecodeNode = { label: 'root', children: [{ label: 'child', value: 1 }] };
+    const probe = registerPatchProbe(probeId, rootNode);
+    const strangerNode: DecodeNode = { label: 'stranger', value: 2 };
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+
+    expect(() => probe.deliver(strangerNode, '(Nope)')).not.toThrow();
+    expect(container.querySelectorAll('.decode-tree-annotation').length).toBe(0);
+
+    cleanup();
+  });
+
+  it("a second Decode press unsubscribes the first run's channel — a name delivered afterward touches no element in the new tree", async () => {
+    const probeId1 = 'patch-probe-first-run';
+    const probeId2 = 'patch-probe-second-run';
+    const firstTargetNode: DecodeNode = { label: 'first-target', value: 1 };
+    const firstRoot: DecodeNode = { label: 'root1', children: [firstTargetNode] };
+    const secondRoot: DecodeNode = { label: 'root2', children: [{ label: 'second-target', value: 2 }] };
+    const probe1 = registerPatchProbe(probeId1, firstRoot);
+    window.DxDecode!.registry!.register({
+      id: probeId2,
+      label: 'second probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async () => ({ node: secondRoot }),
+    });
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId1);
+    await runDecodeAndFlush(container, probeId2);
+
+    expect(() => probe1.deliver(firstTargetNode, '(Late)')).not.toThrow();
+    expect(container.querySelectorAll('.decode-tree-annotation').length).toBe(0);
+
+    cleanup();
+  });
+
+  it('pressing Clear aborts the active controller, unsubscribes the channel, and discards the row index — a name delivered after Clear touches no element and throws nothing', async () => {
+    const probeId = 'patch-probe-clear';
+    const targetNode: DecodeNode = { label: 'target', value: 1 };
+    const rootNode: DecodeNode = { label: 'root', children: [targetNode] };
+    let capturedSignal: AbortSignal | undefined;
+    let listener: ((n: DecodeNode, a: string) => void) | undefined;
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'clear probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        capturedSignal = ctx.signal;
+        return {
+          node: rootNode,
+          onNodeUpdate: (l: (n: DecodeNode, a: string) => void) => {
+            listener = l;
+            return () => {
+              listener = undefined;
+            };
+          },
+        };
+      },
+    });
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+
+    const rowBeforeClear = findRowByLabel(container, 'target');
+    const annotationsBefore = rowBeforeClear.querySelectorAll('.decode-tree-annotation').length;
+
+    container.querySelector<HTMLButtonElement>('#decode-clear-btn')!.click();
+
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(listener).toBeUndefined();
+    expect(() => listener?.(targetNode, '(Late)')).not.toThrow();
+    // rowBeforeClear is now detached (Clear re-rendered an empty result) — asserting against
+    // THIS specific element (not the container) proves the listener itself was never invoked,
+    // not merely that the DOM it would have touched is gone.
+    expect(rowBeforeClear.querySelectorAll('.decode-tree-annotation').length).toBe(annotationsBefore);
+
+    cleanup();
+  });
+
+  it('the abort, unsubscribe and row-index discard live in ONE named helper, called by runDecode, the Clear handler and the mount cleanup', () => {
+    const source = readFileSync(resolve(__dirname, '../src/dapps/decode/ui.ts'), 'utf-8');
+    const defMatch =
+      /function (\w+)\(\)\s*:\s*void\s*\{[\s\S]*?currentController\?\.abort\(\);[\s\S]*?unsubscribeUpdates/.exec(
+        source,
+      );
+    expect(defMatch).not.toBeNull();
+    const helperName = defMatch![1];
+    // The function's own declaration line (`function helperName(): void {`) never matches
+    // `helperName();` — only an invocation does, so three is the exact expected call-site count:
+    // runDecode, the Clear handler, and the mount cleanup.
+    const callCount = (source.match(new RegExp(`\\b${helperName}\\(\\);`, 'g')) ?? []).length;
+    expect(callCount).toBe(3);
+  });
+
+  it('the mount cleanup unsubscribes the active channel', async () => {
+    const probeId = 'patch-probe-cleanup';
+    const targetNode: DecodeNode = { label: 'target', value: 1 };
+    const rootNode: DecodeNode = { label: 'root', children: [targetNode] };
+    let listener: ((n: DecodeNode, a: string) => void) | undefined;
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'cleanup probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async () => ({
+        node: rootNode,
+        onNodeUpdate: (l: (n: DecodeNode, a: string) => void) => {
+          listener = l;
+          return () => {
+            listener = undefined;
+          };
+        },
+      }),
+    });
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+    expect(listener).toBeDefined();
+
+    cleanup();
+
+    expect(listener).toBeUndefined();
+  });
+
+  it('a run result with no update channel behaves exactly as before this task', async () => {
+    const probeId = 'patch-probe-no-channel';
+    const rootNode: DecodeNode = { label: 'root', value: 1 };
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'no-channel probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async () => ({ node: rootNode }),
+    });
+
+    const { container, cleanup } = mount();
+    await expect(runDecodeAndFlush(container, probeId)).resolves.not.toThrow();
+    expect(container.querySelector('.decode-tree-row')).not.toBeNull();
+
+    cleanup();
+  });
+
+  it('renders a LATE-PATCHED annotation carrying markup characters as literal text with no such element created — the late-patch counterpart to the first-render sanity test above', async () => {
+    const probeId = 'patch-probe-markup';
+    const targetNode: DecodeNode = { label: 'target', value: 1 };
+    const rootNode: DecodeNode = { label: 'root', children: [targetNode] };
+    const probe = registerPatchProbe(probeId, rootNode);
+    const spelled = '<img src=x onerror=alert(1)>';
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId);
+
+    probe.deliver(targetNode, spelled);
+
+    const row = findRowByLabel(container, 'target');
+    expect(row.querySelector('img')).toBeNull();
+    expect(row.textContent).toContain(spelled);
+
+    cleanup();
   });
 });
 
@@ -1583,6 +1944,18 @@ describe('logEntriesToJson / logEntryToCurl — pure serializers reading only th
 
   it('an entry with no requestHeaders produces no -H argument', () => {
     expect(ui().logEntryToCurl(entry())).not.toContain('-H');
+  });
+
+  it('a recorded POST entry carrying a body produces a -d argument with the recorded body (Plan 05 Task 0)', () => {
+    const out = ui().logEntryToCurl(
+      entry({ method: 'POST', url: 'https://example.com/rpc', requestBody: '{"hash":"0x1"}' }),
+    );
+    expect(out).toContain('-X POST');
+    expect(out).toContain(`-d '{"hash":"0x1"}'`);
+  });
+
+  it('a GET entry produces no -d argument', () => {
+    expect(ui().logEntryToCurl(entry())).not.toContain('-d');
   });
 
   it('a url containing a single quote is emitted escaped, with balanced quoting', () => {

@@ -52,6 +52,31 @@
 .decode-tree-warning { color: var(--amber); }
 .decode-tree-annotation { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
 
+/* Only a folded value grows: it claims the row's remaining width and wraps INSIDE itself, which
+   is what keeps the fold control on the same flex line rather than on a new one underneath.
+   The basis must be 0, never auto: the row wraps, and a wrapping flex container decides line
+   breaks from an item's HYPOTHETICAL main size — with `auto` that is the full content width of a
+   15,000-character string, so the control is pushed to the next line before any shrinking is
+   considered. A zero basis makes the value always fit on the line, then grow into what is left.
+   The min-width is the other half and is NOT optional: a zero basis with nothing holding it up
+   collapses to nothing whenever the row's other items (label, type hint, provenance badge, and a
+   re-identification annotation that can run to a full sentence) take the width — and a value
+   squeezed to zero with `word-break: break-all` renders one character per line. Clamping the
+   hypothetical size at 12rem also means the value wraps to its own flex line, control and all,
+   rather than collapsing, on the narrow rows deep in a nested tree. */
+.decode-tree-value-foldable { flex: 1 1 0; min-width: 12rem; }
+
+/* The fold control for an over-long value. Reads as a small word, not as chrome — the same
+   border/background reset the disclosure and value buttons use. align-self overrides the row's
+   baseline alignment so the control stays at the TOP of a value wrapping over many lines, where
+   the reader is looking, instead of trailing its last line. */
+.decode-tree-expand {
+  background: none; border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0 0.3rem; color: var(--text-dim); font-family: inherit; font-size: 0.72rem;
+  cursor: pointer; flex-shrink: 0; align-self: flex-start;
+}
+.decode-tree-expand:hover { color: var(--accent); border-color: var(--accent); }
+
 /* ETH-10: a small trailing affordance beside the value button — never inside it (an anchor
    nested in a <button> is invalid HTML with undefined activation behaviour, D-30). */
 .decode-tree-link { color: var(--text-dim); text-decoration: none; font-size: 0.9em; }

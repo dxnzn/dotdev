@@ -32,9 +32,27 @@ function transportModule(): {
   NET_BACKOFF_BASE_MS: number;
   NET_RETRY_AFTER_MIN_MS: number;
   NET_RETRY_AFTER_MAX_MS: number;
+  NET_DEFAULT_TIMEOUT_MS: number;
+  NET_JSON_RPC_RATE_LIMIT_CODES: number[];
+  NET_CREDENTIAL_QUERY_KEYS: string[];
   netParseRetryAfter: (value: string) => number | null;
 } {
   return window.DxDecode!.transport as unknown as ReturnType<typeof transportModule>;
+}
+
+// Plan 05 Task 0: a fetch stub for the timeout tests below — never resolves on its own, but
+// (like a real `fetch`) REJECTS the moment the signal it was handed aborts. A plain
+// `new Promise<Response>(() => {})` — used elsewhere in this suite for "aborting a sleeping
+// retry" — never settles even after abort, which is correct there (nothing awaits that promise
+// again) but would hang a test whose whole point is that the timeout's abort causes the
+// in-flight `fetch` call itself to reject.
+function neverSettlingFetch(): (url: string, init?: RequestInit) => Promise<Response> {
+  return (_url, init) =>
+    new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => {
+        reject(new DOMException('The operation was aborted', 'AbortError'));
+      });
+    });
 }
 
 function makeLog(): { log: LogPort; entries: LogEntry[] } {
@@ -394,6 +412,44 @@ describe('transport — dedupe/abort attachment semantics (NET-02, NET-03)', () 
     expect(result.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // CR-01 (06-REVIEW.md): the map entry used to be removed only inside `runShared.finally`,
+  // after the in-flight fetch's rejection landed — a later task. In the window between the last
+  // caller's abort (which synchronously aborts the shared controller) and that rejection, a
+  // second, identical GET issued in the SAME synchronous turn found and attached to the dying
+  // entry, deterministically resolving `aborted`. The fix removes the entry the moment the
+  // attached-caller count reaches zero, so a same-turn re-request starts fresh instead.
+  it('CR-01: a same-turn identical GET after the sole caller aborts to zero starts a fresh request rather than attaching to the dying one', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(
+      () =>
+        new Promise<Response>((resolveFetch) => {
+          setTimeout(() => resolveFetch(new Response('{}', { status: 200 })), 10);
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const controllerA = new AbortController();
+    const pA = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/cr-01-same-turn',
+      signal: controllerA.signal,
+    });
+
+    // The sole attached caller detaches — attachedCount reaches zero synchronously inside abort().
+    controllerA.abort();
+
+    // Issued in the SAME synchronous turn as the abort above, before the first shared request's
+    // underlying fetch rejection has had any chance to run `runShared.finally`.
+    const pB = transport.request({ method: 'GET', url: 'https://api.example.test/cr-01-same-turn' });
+
+    const [resultA, resultB] = await Promise.all([pA, pB]);
+
+    expect(resultA.ok).toBe(false);
+    expect(resultB.ok).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('transport — retry, backoff, and Retry-After (Task 2, NET-03)', () => {
@@ -635,6 +691,497 @@ describe('transport — retry, backoff, and Retry-After (Task 2, NET-03)', () =>
 
     await vi.advanceTimersByTimeAsync(5000);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('transport — request timeout (Plan 05 Task 0, T-06-20)', () => {
+  it('a request whose response never settles resolves with a transport-level failure rather than hanging', async () => {
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(neverSettlingFetch());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const resultPromise = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/never-settles',
+      timeoutMs: 1000,
+    });
+
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('timed out');
+  });
+
+  it('a first attempt that times out and a second that responds resolves successfully with attempts: 2', async () => {
+    vi.useFakeTimers();
+    const { log, entries } = makeLog();
+    let call = 0;
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      call++;
+      if (call === 1) return neverSettlingFetch()(url, init);
+      return Promise.resolve(new Response('{"ok":true}', { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const resultPromise = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/timeout-then-ok',
+      timeoutMs: 1000,
+    });
+
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toBe(2);
+    expect(entries).toHaveLength(2);
+  });
+
+  it('a request timing out on every attempt reports the full attempt cap, not 1', async () => {
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(neverSettlingFetch());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const resultPromise = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/always-times-out',
+      timeoutMs: 1000,
+    });
+
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(false);
+    expect(result.attempts).toBe(transportModule().NET_MAX_ATTEMPTS);
+  });
+
+  it('a request that waits in the rate-limiter queue longer than its own timeout still succeeds once dequeued', async () => {
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log, rps: 1 });
+    const first = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/queue-first',
+      timeoutMs: 500,
+    });
+    const second = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/queue-second',
+      timeoutMs: 500,
+    });
+
+    await vi.advanceTimersByTimeAsync(1000);
+    const [r1, r2] = await Promise.all([first, second]);
+
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true);
+  });
+
+  it('the timeout error text is distinguishable from a caller-abort error text and from the plain "aborted" shared text', async () => {
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(neverSettlingFetch());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const timedOutPromise = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/distinguish-timeout',
+      timeoutMs: 1000,
+    });
+    for (let i = 0; i < 8; i++) {
+      await vi.advanceTimersByTimeAsync(2000);
+    }
+    const timedOut = await timedOutPromise;
+
+    const controller = new AbortController();
+    const callerAbortPromise = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/distinguish-caller-abort',
+      signal: controller.signal,
+    });
+    controller.abort();
+    const callerAborted = await callerAbortPromise;
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(timedOut.error).toContain('timed out');
+    expect(timedOut.error).not.toBe(callerAborted.error);
+    expect(timedOut.error).not.toBe('aborted');
+    expect(callerAborted.error).not.toContain('timed out');
+  });
+
+  it('a request with no declared timeout uses the module default of 30000ms', async () => {
+    expect(transportModule().NET_DEFAULT_TIMEOUT_MS).toBe(30000);
+
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(neverSettlingFetch());
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const resultPromise = transport.request({ method: 'GET', url: 'https://api.example.test/default-timeout' });
+
+    await vi.advanceTimersByTimeAsync(29000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    // Every attempt gets the full 30000ms default, and the attempt cap is 4 — advance well past
+    // the worst case (4 * 30000ms plus backoff) rather than only past the first attempt's timeout.
+    for (let i = 0; i < 20; i++) {
+      await vi.advanceTimersByTimeAsync(10000);
+    }
+    const result = await resultPromise;
+    expect(result.error).toContain('timed out');
+  });
+
+  it('two concurrent GETs to the same url with equal byte ceilings but different timeouts do not share one request', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    await Promise.all([
+      transport.request({ method: 'GET', url: 'https://api.example.test/timeout-dedupe-diff', timeoutMs: 1000 }),
+      transport.request({ method: 'GET', url: 'https://api.example.test/timeout-dedupe-diff', timeoutMs: 2000 }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('two concurrent GETs to the same url with equal byte ceilings and equal timeouts share one request', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    await Promise.all([
+      transport.request({ method: 'GET', url: 'https://api.example.test/timeout-dedupe-same', timeoutMs: 1000 }),
+      transport.request({ method: 'GET', url: 'https://api.example.test/timeout-dedupe-same', timeoutMs: 1000 }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('transport — userinfo/query-key redaction and logUrl/logBody honouring (Plan 05 Task 0, T-06-37, T-06-38)', () => {
+  it('a URL carrying userinfo is recorded with the userinfo masked, for every caller', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    await transport.request({ method: 'GET', url: `https://user:${REAL_API_KEY}@api.example.test/x` });
+
+    expect(entries).toHaveLength(1);
+    const allValues = collectAllValues(entries[0]);
+    expect(allValues).not.toContain(REAL_API_KEY);
+    expect(entries[0].url).not.toContain(REAL_API_KEY);
+    // URL's username/password setters percent-encode `[`/`]`, so the stored url does not
+    // literally contain "[redacted]" — decode the parsed username to prove the real marker
+    // landed there, the same discipline the pre-existing apikey test uses for searchParams.
+    const parsedStoredUrl = new URL(entries[0].url!);
+    expect(decodeURIComponent(parsedStoredUrl.username)).toBe(transportModule().NET_REDACTED);
+  });
+
+  it('a credential-shaped query key beyond apikey (e.g. token) is masked', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/x',
+      query: { token: REAL_API_KEY },
+    });
+
+    expect(new URL(entries[0].url!).searchParams.get('token')).toBe(transportModule().NET_REDACTED);
+  });
+
+  it('a request supplying logUrl has that value recorded in place of the composed URL, with host/path/query all derived from it', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    await transport.request({
+      method: 'POST',
+      url: 'https://real-endpoint.example.test/v3/secret-project-id?foo=bar',
+      logUrl: 'https://real-endpoint.example.test/[redacted]',
+      body: '{"hash":"0x1"}',
+    });
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0].url).toBe('https://real-endpoint.example.test/[redacted]');
+    expect(entries[0].host).toBe('real-endpoint.example.test');
+    expect(entries[0].path).not.toContain('secret-project-id');
+    expect(entries[0].query).toBeUndefined();
+  });
+
+  it('the explorer leg (no logUrl supplied) records the composed, query-key-redacted url unchanged', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/x',
+      query: { apikey: REAL_API_KEY },
+    });
+
+    expect(new URL(entries[0].url!).searchParams.get('apikey')).toBe(transportModule().NET_REDACTED);
+    expect(entries[0].url).not.toContain(REAL_API_KEY);
+  });
+
+  it('a request supplying logBody has that value recorded in place of req.body', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    await transport.request({
+      method: 'POST',
+      url: 'https://api.example.test/x',
+      body: `{"secret":"${REAL_API_KEY}"}`,
+      logBody: '{"hash":"0x1"}',
+    });
+
+    expect(entries[0].requestBody).toBe('{"hash":"0x1"}');
+    expect(entries[0].requestBody).not.toContain(REAL_API_KEY);
+  });
+
+  it('a request with no logBody records the body verbatim — pinned by a test, not left to a comment', async () => {
+    const { log, entries } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const body = '{"hash":"0x1"}';
+    await transport.request({ method: 'POST', url: 'https://api.example.test/x', body });
+
+    expect(entries[0].requestBody).toBe(body);
+  });
+});
+
+describe('transport — JSON-RPC rate-limit recognition (Plan 05 Task 0, T-06-30)', () => {
+  it('an HTTP 200 carrying a JSON-RPC error with code -32005 is retried', async () => {
+    vi.useFakeTimers();
+    const { log, entries } = makeLog();
+    let call = 0;
+    const fetchMock = vi.fn(() => {
+      call++;
+      const body =
+        call < 2
+          ? JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32005, message: 'rate limit exceeded' } })
+          : JSON.stringify({ jsonrpc: '2.0', id: 1, result: { hash: '0x1' } });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const resultPromise = transport.request({ method: 'GET', url: 'https://api.example.test/jsonrpc-rate-limit' });
+    for (let i = 0; i < 4; i++) {
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    const result = await resultPromise;
+
+    expect(result.ok).toBe(true);
+    expect(result.attempts).toBe(2);
+    expect(entries).toHaveLength(2);
+  });
+
+  it('an HTTP 200 carrying a JSON-RPC error with a non-rate-limit code is not retried and is reported as a failure rather than a success', async () => {
+    const { log } = makeLog();
+    const body = JSON.stringify({ jsonrpc: '2.0', id: 1, error: { code: -32602, message: 'invalid params' } });
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(body, { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({ method: 'GET', url: 'https://api.example.test/jsonrpc-error' });
+
+    expect(result.ok).toBe(false);
+    expect(result.attempts).toBe(1);
+    expect(result.error).toContain('invalid params');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('transport — malformed URL cannot make the transport reject (Plan 05 Task 0, T-06-31)', () => {
+  it('a request with an unparseable url resolves with a transport-level failure and does not reject', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    await expect(transport.request({ method: 'GET', url: 'not a url at all' })).resolves.toMatchObject({
+      ok: false,
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('an unparseable url reports a failure naming the problem', async () => {
+    const { log } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({ method: 'GET', url: '::::not-a-url::::' });
+
+    expect(result.error).toContain('malformed url');
+  });
+});
+
+describe('transport — per-request byte ceiling and its truncation report (Task 1, D-10)', () => {
+  it('a request with a 262144-byte ceiling reads a body larger than the global 65536-byte limit in full, and its JSON parses to a non-null value', async () => {
+    const { log } = makeLog();
+    const bigBody = JSON.stringify({ data: 'x'.repeat(100000) });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(bigBody, { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/big-ceiling',
+      maxBytes: 262144,
+    });
+
+    expect(result.body.length).toBeGreaterThan(transportModule().NET_BODY_LIMIT_BYTES);
+    expect(result.json).not.toBeNull();
+    expect(result.truncated).toBeFalsy();
+  });
+
+  it('a request carrying no ceiling is still capped at the global 65536-byte limit, exactly as before this task', async () => {
+    const { log } = makeLog();
+    const bigBody = 'x'.repeat(transportModule().NET_BODY_LIMIT_BYTES + 5000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(bigBody, { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({ method: 'GET', url: 'https://api.example.test/no-ceiling' });
+
+    expect(result.body.length).toBeLessThan(bigBody.length);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('a body exceeding its own request ceiling reports truncated: true', async () => {
+    const { log } = makeLog();
+    const overBody = 'x'.repeat(2000);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(overBody, { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/over-ceiling',
+      maxBytes: 1000,
+    });
+
+    expect(result.truncated).toBe(true);
+  });
+
+  it('a well-formed body within its own request ceiling reports truncated as absent or false', async () => {
+    const { log } = makeLog();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response('{"ok":true}', { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/within-ceiling',
+      maxBytes: 1000,
+    });
+
+    expect(result.truncated).toBeFalsy();
+  });
+
+  it('two concurrent GETs to the same url with DIFFERENT ceilings do not share one request', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    await Promise.all([
+      transport.request({ method: 'GET', url: 'https://api.example.test/ceiling-dedupe-diff', maxBytes: 1000 }),
+      transport.request({ method: 'GET', url: 'https://api.example.test/ceiling-dedupe-diff', maxBytes: 2000 }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('two concurrent GETs to the same url with the SAME ceiling share one request', async () => {
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log });
+    await Promise.all([
+      transport.request({ method: 'GET', url: 'https://api.example.test/ceiling-dedupe-same', maxBytes: 5000 }),
+      transport.request({ method: 'GET', url: 'https://api.example.test/ceiling-dedupe-same', maxBytes: 5000 }),
+    ]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("the recorded log entry's response body for an oversized response is no larger than the global limit plus its truncation notice, while the body returned to the caller is larger", async () => {
+    const { log, entries } = makeLog();
+    const NET_BODY_LIMIT_BYTES = transportModule().NET_BODY_LIMIT_BYTES;
+    // Larger than the global 64 KB limit, well within the 256 KB caller ceiling below — so the
+    // CALLER's own copy is not truncated at all, and only the log's independent cap should cut it.
+    const bigBody = JSON.stringify({ data: 'x'.repeat(NET_BODY_LIMIT_BYTES) });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(bigBody, { status: 200 }))),
+    );
+
+    const transport = transportModule().createTransport({ log });
+    const result = await transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/log-cap',
+      maxBytes: 262144,
+    });
+
+    expect(result.body.length).toBeGreaterThan(NET_BODY_LIMIT_BYTES);
+    expect(result.truncated).toBeFalsy();
+    expect(entries[0].responseBody).toContain('truncated');
+    // The global limit plus a generous allowance for the truncation notice's own text.
+    expect(entries[0].responseBody!.length).toBeLessThanOrEqual(NET_BODY_LIMIT_BYTES + 60);
   });
 });
 

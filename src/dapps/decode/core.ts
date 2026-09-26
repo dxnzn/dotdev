@@ -138,7 +138,7 @@ function findOwnRoute(dx: unknown): string | null {
 // decoder becomes a returned error node rather than a rejected promise — DecodeService itself
 // never rejects.
 function createDecodeService(options: DecodeServiceOptions): DecodeService {
-  const { registry, settings, log, links, transport, abis, signatures, target, settingsRoute } = options;
+  const { registry, settings, log, links, transport, abis, signatures, txSource, target, settingsRoute } = options;
 
   return {
     async decode(decoderId, input, runOptions) {
@@ -183,6 +183,9 @@ function createDecodeService(options: DecodeServiceOptions): DecodeService {
         transport,
         abis,
         signatures,
+        // Phase 6 Task 0: the ONE further optional passthrough — stays undefined until a later
+        // plan supplies a real adapter, exactly like the five above.
+        txSource,
         target,
         settingsRoute,
       };
@@ -199,6 +202,9 @@ function createDecodeService(options: DecodeServiceOptions): DecodeService {
         rawBytes: output.rawBytes ?? null,
         rawView: output.rawView ?? 'hex-dump',
         stale: signal?.aborted ?? false,
+        // Phase 6 Task 0: passthrough only — the ETH-12 patch-in channel (DecodeOutput's own
+        // comment). undefined until a decoder actually supplies one.
+        onNodeUpdate: output.onNodeUpdate,
       };
     },
   };

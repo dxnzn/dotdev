@@ -118,8 +118,10 @@ const RESOLUTION_MATRIX: { name: string; input: string; expectedId: string }[] =
     // D-27's negative case: calldata-shaped (4 + 32*1 bytes) but the selector
     // (0x1509b894, for the deliberately unseeded "noSuchFunctionSeeded(uint256)") is NOT in
     // signatures.ts's local table — avoids every seeded selector: 0xa9059cbb, 0x095ea7b3,
-    // 0x70a08231, 0x11c76fd9, 0x22fab893, 0x48215787, 0x2806b0af, 0xac6695d1, 0x329eb839. A
-    // later phase seeding more signatures must re-pick this selector if it ever collides.
+    // 0x70a08231, 0x11c76fd9, 0xee5b2895, 0x48215787, 0x2806b0af, 0xac6695d1, 0x329eb839,
+    // 0x12374b04, 0xa8841366, 0xac9650d8, 0x252dba42, 0x6a761202 (06-01 replaced 0x22fab893
+    // with 0xee5b2895 and seeded five more). A later phase seeding more signatures must re-pick
+    // this selector if it ever collides.
     // eth-calldata scores 0.91 (shaped, non-resolving) here, abi-words still scores 0.95, so
     // abi-words wins — this is the half of D-27's relationship the row above does not prove.
     name: 'abi-words — calldata-shaped but selector not in the local table (D-27 negative case)',

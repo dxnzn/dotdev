@@ -15,11 +15,22 @@ const SIG_LOCAL_TABLE: Record<string, string> = {
   '0x095ea7b3': 'approve(address,uint256)',
   '0x70a08231': 'balanceOf(address)',
   '0x11c76fd9': 'batchCalls((address,uint256,bytes)[])',
-  '0x22fab893': 'executeByVotes(uint256,address,uint256,bytes,bytes32)',
+  // 06-01 (Round 2 review, D-07): replaces the superseded uint256 form — the real deployed
+  // contract's op argument is uint8 (`0x36cde4af…656ba`, block 23875426), and the shipped
+  // uint256 entry was internally consistent but wrong for it, which is why the real proposal-7
+  // outer calldata resolved UNRESOLVED before this plan. Re-derived with this repo's own
+  // keccak port before being written (06-01-SUMMARY.md's nine-selector reference block).
+  '0xee5b2895': 'executeByVotes(uint8,address,uint256,bytes,bytes32)',
   '0x48215787': 'deployNext(bytes,bytes32)',
   '0x2806b0af': 'mintFromMoloch(address,uint256)',
   '0xac6695d1': 'claimTribute(address,address)',
   '0x329eb839': 'pull()',
+  // 06-01: five further Majeur/Safe entries, each keccak-verified the same way.
+  '0x12374b04': 'setPermit(uint8,address,uint256,bytes,bytes32,address,uint256)',
+  '0xa8841366': 'spendPermit(uint8,address,uint256,bytes,bytes32)',
+  '0xac9650d8': 'multicall(bytes[])',
+  '0x252dba42': 'aggregate((address,bytes)[])',
+  '0x6a761202': 'execTransaction(address,uint256,bytes,uint8,uint256,uint256,uint256,address,address,bytes)',
 };
 
 // A plain object, no class (ORG.md's factory convention) — createLocalSignatureTable() is the

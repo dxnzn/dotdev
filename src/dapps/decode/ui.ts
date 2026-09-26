@@ -58,7 +58,13 @@ const DISPLAY_DISPATCH: Record<DisplayMode, (node: DecodeNode) => string | null>
   txhash: (node) => (typeof node.value === 'string' ? node.value : (underlyingText(node) ?? null)),
   hex: (node) => underlyingText(node) ?? null,
   int: (node) => underlyingText(node) ?? null,
-  text: (node) => underlyingText(node) ?? null,
+  // Reads `value` first for the same reason address/txhash do, but inverted: for an ABI-decoded
+  // `string` argument `raw` is the hex of the utf8 bytes and `value` is the text, so
+  // underlyingText's raw-wins rule would render `0x5a` where the argument says `Z`. Every other
+  // node reaching this entry (base64/url/jwt/hex's own `text` nodes) writes value === raw, so
+  // preferring value is a no-op for them. abi.ts's invalid-UTF-8 branch sets value to the hex
+  // itself, which is why this needs no separate guard for undecodable bytes.
+  text: (node) => (typeof node.value === 'string' ? node.value : (underlyingText(node) ?? null)),
   json: (node) => underlyingText(node) ?? null,
   bool: (node) => underlyingText(node) ?? null,
 };
@@ -70,6 +76,21 @@ function formatDisplayValue(node: DecodeNode): string | null {
     return DISPLAY_DISPATCH[node.display](node);
   }
   return underlyingText(node) ?? null;
+}
+
+// A value longer than this is FOLDED for display — a head-and-tail stand-in plus an expand
+// control beside it. Purely presentational and deliberately decoder-agnostic: a 7 KB creation-code
+// blob, a base64 image and a JWT payload all fill the panel the same way, and none of their
+// decoders should have to know about it. `raw` is untouched, so click-to-copy still yields the
+// whole value whether or not it is folded — the fold is what the eye sees, never what the
+// clipboard gets. The head is wide enough to keep a 32-byte word (66 characters with its 0x)
+// intact, so the common case of one over-long word folds to something still readable.
+const VALUE_FOLD_THRESHOLD = 128;
+const VALUE_FOLD_HEAD = 66;
+const VALUE_FOLD_TAIL = 32;
+
+function foldValue(text: string): string {
+  return `${text.slice(0, VALUE_FOLD_HEAD)}…${text.slice(-VALUE_FOLD_TAIL)}`;
 }
 
 const PROVENANCE_LABELS: Record<ProvenanceMode, string> = {
@@ -181,7 +202,13 @@ function nextTreeId(): string {
 // toggles expand/collapse, announced via aria-expanded/aria-controls) and the value (real
 // button, click-to-copy) — never the row itself, which is why D-13 rejects a native
 // <details>/<summary> element in the first place.
-function renderNode(node: DecodeNode): HTMLElement {
+// Task 2 (06-06): `index`, when supplied, is populated with this node's own ROW element as it
+// is built and threaded into every recursive call — a plain Map keyed on the node object itself,
+// since node identity is the only handle available (the render contract deliberately has no id
+// or path member, and the decoder mutates the very objects this function draws). Optional so the
+// signature stays compatible with the frozen single-argument DxDecodeUiTestHooks.renderNode hook
+// — every existing test-hook call site keeps working with no changes.
+function renderNode(node: DecodeNode, index?: Map<DecodeNode, HTMLElement>): HTMLElement {
   const wrapper = document.createElement('div');
   wrapper.className = 'decode-tree-node';
 
@@ -194,12 +221,13 @@ function renderNode(node: DecodeNode): HTMLElement {
     // D-15: the decoder decides what is collapsed; no heuristic here on depth or child count.
     if (node.collapsed === true) childrenEl.classList.add('decode-tree-collapsed');
     for (const child of node.children as DecodeNode[]) {
-      childrenEl.append(renderNode(child));
+      childrenEl.append(renderNode(child, index));
     }
   }
 
   const row = document.createElement('div');
   row.className = 'decode-tree-row';
+  index?.set(node, row);
 
   if (hasChildren && childrenEl) {
     const disclosure = document.createElement('button');
@@ -238,15 +266,52 @@ function renderNode(node: DecodeNode): HTMLElement {
   const valueBtn = document.createElement('button');
   valueBtn.type = 'button';
   valueBtn.className = 'decode-tree-value';
-  valueBtn.textContent = formatDisplayValue(node) ?? '';
+  const displayText = formatDisplayValue(node) ?? '';
+  const folded = displayText.length > VALUE_FOLD_THRESHOLD;
+  valueBtn.textContent = folded ? foldValue(displayText) : displayText;
   valueBtn.addEventListener('click', () => {
     void copyValue(node, row);
   });
   row.append(valueBtn);
-  // ETH-10/ETH-11: exposes the full value on hover whenever the displayed text is a shortened
-  // stand-in for it — a no-op for every node whose display already equals its underlying text
-  // (applyFullValueTitle's own equality check), so this call is safe to make unconditionally.
-  applyFullValueTitle(valueBtn, node);
+
+  if (folded) {
+    // The row is a wrapping flex container and a folded value still wraps over several lines, so
+    // without this the control is pushed onto a flex line of its own BELOW the value. The class
+    // lets the value claim the remaining width and shrink (min-width: 0) instead of forcing the
+    // wrap, which is what keeps the control beside it and top-aligned. Applied only when folded —
+    // a short value must not grow, or the link and provenance badge after it get pushed to the
+    // far edge of every row in the tree.
+    valueBtn.classList.add('decode-tree-value-foldable');
+    // A SECOND disclosure, deliberately separate from the children one at the head of the row:
+    // that control answers "what is inside this node", this one answers "what does this node's
+    // own value say in full", and collapsing either must not collapse the other. Sits after the
+    // value button for the same reason the link anchor does — a control nested inside a button
+    // is invalid HTML with undefined activation behaviour.
+    const expand = document.createElement('button');
+    expand.type = 'button';
+    expand.className = 'decode-tree-expand';
+    expand.setAttribute('aria-expanded', 'false');
+    expand.textContent = 'more';
+    // The count is the useful fact a folded value hides — how much was elided, not what it says.
+    expand.title = `${displayText.length} characters`;
+    expand.addEventListener('click', () => {
+      // Named `expanded`, not `open`: the portability guard's network-identifier scan treats a
+      // bare `open` as window.open, and a local binding is not worth an allowlist entry.
+      const expanded = expand.getAttribute('aria-expanded') === 'true';
+      const next = !expanded;
+      expand.setAttribute('aria-expanded', String(next));
+      expand.textContent = next ? 'less' : 'more';
+      valueBtn.textContent = next ? displayText : foldValue(displayText);
+    });
+    row.append(expand);
+  } else {
+    // ETH-10/ETH-11: exposes the full value on hover whenever the displayed text is a shortened
+    // stand-in for it — a no-op for every node whose display already equals its underlying text
+    // (applyFullValueTitle's own equality check), so this call is safe to make unconditionally.
+    // Skipped for a folded value on purpose: a title carrying thousands of characters is a worse
+    // affordance than the expand control that replaces it, not a redundant one.
+    applyFullValueTitle(valueBtn, node);
+  }
 
   // 05-06 (D-30, ETH-10): the link travels on the node — `link`/`linkKind` are the whole data
   // path (05-01 Task 0) — and is drawn here as a SIBLING following the value button, never a
@@ -713,9 +778,12 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // 05-05 Task 3: the transport, the two registry adapters and the resolver, all real in the
   // shipped app — this is what makes a REGISTRY badge and a Log tab entry reachable from a
   // decode rather than only from a test double. `target` is deliberately NOT supplied: a
-  // pasted calldata blob has no target address, so the verified rung stays unreachable in
-  // production this phase (Phase 6's ETH-08 transaction input is what supplies it).
-  const { transport, signatures, settingsRoute } = createDecodeAdapters(dx, settings, log);
+  // pasted calldata blob has no target address of its own. The verified rung (`abis`, 06-03) is
+  // nonetheless reachable in production for every NESTED call, because Plan 06-02's sibling rule
+  // supplies those targets from inside the payload itself — and, since Plan 06-05, for the
+  // OUTER call too, once a transaction hash's own recipient supplies a top-level target the
+  // decoder resolves internally (`txSource`, wired below).
+  const { transport, signatures, abis, txSource, settingsRoute } = createDecodeAdapters(dx, settings, log);
   const decodeService = core.createDecodeService({
     registry,
     settings,
@@ -723,6 +791,8 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     links,
     transport,
     signatures,
+    abis,
+    txSource,
     settingsRoute,
   });
 
@@ -763,9 +833,29 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // deliberately creates none. Aborting the previous one before starting the next is what
   // makes an abandoned decode's result arrive already marked stale by DecodeService.
   let currentController: AbortController | null = null;
+  // Task 2 (06-06): ETH-12's per-node update-channel bookkeeping for the CURRENT tree — the row
+  // index (node -> row element) and the stored unsubscribe for the current decode's channel, if
+  // it carries one. Both are torn down together with the controller by endActiveRun, below,
+  // never hand-copied across the three call sites that need it.
+  let rowIndex: Map<DecodeNode, HTMLElement> | null = null;
+  let unsubscribeUpdates: (() => void) | null = null;
+
+  // The one place that ends whatever run is currently active — aborts the controller,
+  // unsubscribes the update channel, and discards the row index. Called at the top of every new
+  // runDecode (a second Decode press must detach the first run's channel, exactly as it already
+  // detached the first run's abort controller), by the Clear handler (Clear now ends the run as
+  // completely as pressing Decode does — see onClearClick, below), and by the mount's own
+  // cleanup. Three hand-copied call sites is how the third one drifts, which is why this exists
+  // as one named function rather than three.
+  function endActiveRun(): void {
+    currentController?.abort();
+    unsubscribeUpdates?.();
+    unsubscribeUpdates = null;
+    rowIndex = null;
+  }
 
   async function runDecode() {
-    currentController?.abort();
+    endActiveRun();
     const controller = new AbortController();
     currentController = controller;
 
@@ -789,11 +879,38 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     // marker DecodeService sets, never on the text of an error node.
     if (result.stale) return;
 
-    tree!.replaceChildren(renderNode(result.node));
+    // Task 2: a fresh index for this render, passed into the single existing renderNode(...)
+    // call below regardless of whether this result carries an update channel — building it
+    // unconditionally keeps this the one call site renderNode is ever invoked from for a real
+    // decode result.
+    rowIndex = new Map<DecodeNode, HTMLElement>();
+    tree!.replaceChildren(renderNode(result.node, rowIndex));
     raw?.replaceChildren(renderRaw(result.rawBytes, result.rawView));
     // Claude's discretion (CONTEXT.md): reset to Result after each decode, so the outcome is
     // always what's on screen rather than whatever tab happened to be open beforehand.
     setActiveTab('result');
+
+    if (result.onNodeUpdate) {
+      // Subscribes in the SAME turn the result was handed to the renderer — the property
+      // types.d.ts's own onNodeUpdate comment relies on ("every node whose name arrives after
+      // subscription is notified exactly once"). Appends ONE annotation span to the existing
+      // row; never rebuilds the row, never touches the children element, never calls the tree
+      // renderer again — collapse state lives only in the DOM (the disclosure handler above
+      // writes nothing back to the node), so any second render of a subtree here would discard
+      // whatever the reader expanded, on the deepest branches, which is exactly where a
+      // nested-calldata reader has been drilling. Reads `rowIndex` (never the closed-over local)
+      // so endActiveRun's own discard has a real effect, not only a symbolic one: a miss — a
+      // node no longer in the current tree, OR a row index endActiveRun already nulled — is a
+      // silent no-op either way.
+      unsubscribeUpdates = result.onNodeUpdate((node, annotation) => {
+        const row = rowIndex?.get(node);
+        if (!row) return;
+        const ann = document.createElement('span');
+        ann.className = 'decode-tree-annotation';
+        ann.textContent = annotation;
+        row.append(ann);
+      });
+    }
   }
 
   const onRunClick = () => {
@@ -802,7 +919,14 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   runBtn.addEventListener('click', onRunClick);
   listeners.push(() => runBtn.removeEventListener('click', onRunClick));
 
+  // Clear ends the active run as completely as pressing Decode does (06-06 Task 2) — previously
+  // it neither aborted `currentController` nor had any channel to unsubscribe, so an in-flight
+  // lookup kept running and a name resolving after Clear would have patched a row index whose
+  // elements are no longer in the document. Pressing Clear is a stronger signal than pressing
+  // Decode again ("I am finished with this result"), so it gets the same treatment through the
+  // same helper.
   const onClearClick = () => {
+    endActiveRun();
     textarea!.value = '';
     renderEmptyResult();
   };
@@ -1050,7 +1174,10 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     for (const off of listeners) off();
     listeners.length = 0;
     unsubscribeLog?.();
-    currentController?.abort();
+    // 06-06 Task 2: the same helper Clear and runDecode use — aborts the controller,
+    // unsubscribes the update channel and discards the row index, so a late name arriving after
+    // unmount touches no element.
+    endActiveRun();
     clearAllCopyTimers();
     container.replaceChildren();
   }
@@ -1164,9 +1291,17 @@ function createDecodeAdapters(
   dx: unknown,
   settings: SettingsPort,
   log: LogPort,
-): { transport?: TransportPort; signatures?: SignatureLookupPort; settingsRoute?: string } {
+): {
+  transport?: TransportPort;
+  signatures?: SignatureLookupPort;
+  abis?: AbiSourcePort;
+  txSource?: TxSourcePort;
+  settingsRoute?: string;
+} {
   const transportModule = window.DxDecode?.transport;
   const signaturesModule = window.DxDecode?.signatures;
+  const abiSourceModule = window.DxDecode?.abiSource;
+  const txSourceModule = window.DxDecode?.txSource;
   const core = window.DxDecode?.core;
 
   let transport: TransportPort | undefined;
@@ -1191,11 +1326,38 @@ function createDecodeAdapters(
     signatures = signaturesModule.createSignatureResolver([openchain, fourbyte]);
   }
 
+  // 06-03: the verified rung's real supplier. Built from the SAME transport instance as
+  // `signatures` above — sharing it is what makes the verified-ABI lookup inherit the one token
+  // bucket, the dedupe map and the credential redaction, rather than silently defeating all
+  // three by constructing a second transport here. Feature-detected like every other sub-key
+  // (a host shell could load ui.js without abi-source.js) so a missing module degrades to an
+  // omitted option, never a throw.
+  let abis: AbiSourcePort | undefined;
+  if (transport && abiSourceModule?.createEtherscanAbiSource) {
+    abis = abiSourceModule.createEtherscanAbiSource(transport, settings);
+  }
+
+  // Plan 05 Task 3: the transaction source's real supplier, built from the SAME transport
+  // instance as everything above. Sharing it is load-bearing for four separate reasons: it is
+  // what puts these requests behind the one token bucket, what gives them the same retry and
+  // backoff policy, what gives them Task 0's timeout, and what applies the log's redaction
+  // rules — the `apikey`-family query-key masking and the unconditional userinfo masking Task 0
+  // adds. A second transport constructed here would silently defeat all four. Word the fourth
+  // reason precisely rather than inflating it: the shared transport redacts a KNOWN credential
+  // position, not an arbitrary one — the endpoint leg's protection against a credential in a
+  // path segment is its own `logUrl` (tx-source.ts's txsComposeLogUrl), not the transport.
+  // "It goes through the transport, so it is safe" is exactly the claim cross-AI review
+  // disproved for this plan's own threat model, and it does not survive here either.
+  let txSource: TxSourcePort | undefined;
+  if (transport && txSourceModule?.txsCreateAdapter) {
+    txSource = txSourceModule.txsCreateAdapter(transport, settings);
+  }
+
   // core.findSettingsRoute(dx) returns null for a host with no settings dapp — DEC-13's
   // sentence then renders with no link rather than a broken one.
   const settingsRoute = core?.findSettingsRoute(dx) ?? undefined;
 
-  return { transport, signatures, settingsRoute };
+  return { transport, signatures, abis, txSource, settingsRoute };
 }
 
 function logEntriesToJson(entries: LogEntry[]): string {
@@ -1203,12 +1365,18 @@ function logEntriesToJson(entries: LogEntry[]): string {
   return JSON.stringify(entries, null, 2);
 }
 
-// NET-07: single-quotes the url and every header argument, escaping an embedded single quote
-// as '\'' (close the quote, an escaped literal quote, reopen) — a URLSearchParams-built query
-// string cannot contain one, but a user-typed RPC host is free text that could, and an
-// unescaped quote there would produce a silently malformed command. Scope is deliberately
-// GET-only with no body flag: this phase's only request shape (RESEARCH.md Don't Hand-Roll) —
-// a body would need a -d/--data flag and its own escaping.
+// NET-07: single-quotes the url and every header/data argument, escaping an embedded single
+// quote as '\'' (close the quote, an escaped literal quote, reopen) — a URLSearchParams-built
+// query string cannot contain one, but a user-typed RPC host or a POST body is free text that
+// could, and an unescaped quote there would produce a silently malformed command.
+//
+// Plan 05 Task 0: scope now includes a body via `-d`, added when the recorded entry carries one
+// (the first POST entry this directory records is Plan 05's JSON-RPC transaction lookup). This
+// composes from whatever the LOG ENTRY holds — `entry.requestBody`, which is `logBody` when the
+// caller supplied one (see `transport.ts`'s `netRequest`) and `req.body` VERBATIM otherwise. It
+// can therefore never expose more than the Log tab already displays, which is the whole of the
+// guarantee: the transport does not redact an arbitrary body by default, and this command was
+// never claiming to either.
 function curlQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
 }
@@ -1222,6 +1390,9 @@ function logEntryToCurl(entry: LogEntry): string {
     for (const [name, value] of Object.entries(entry.requestHeaders)) {
       parts.push('-H', curlQuote(`${name}: ${value}`));
     }
+  }
+  if (entry.requestBody) {
+    parts.push('-d', curlQuote(entry.requestBody));
   }
   return parts.join(' ');
 }

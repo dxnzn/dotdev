@@ -196,7 +196,13 @@ describe('eth-calldata — the tracer vertical (ETH-01, ETH-05)', () => {
   });
 
   it('argument nodes come back in declaration order for a 3-argument signature', async () => {
-    const signature = 'executeByVotes(uint256,address,uint256,bytes,bytes32)';
+    // 06-01: repointed at the real contract's signature (op is uint8, not uint256 — see
+    // signatures.ts's own comment on the corrected 0xee5b2895 entry) after the superseded
+    // uint256 form was removed from the local table. The first word still decodes to 1n
+    // regardless — abi.ts masks every unsigned integer width to a bigint, and a first word of
+    // 1 fits an 8-bit mask exactly the same as a 256-bit one — so the static/dynamic boundary
+    // this test exists to cross is unchanged.
+    const signature = 'executeByVotes(uint8,address,uint256,bytes,bytes32)';
     const selector = keccak().selector(signature);
     // Only the first three (all static) are exercised here — bytes/bytes32 in positions 4/5
     // are out of this plan's decode scope; three static words plus two dynamic offset words
@@ -455,6 +461,51 @@ describe('ethCanDecode — the auto-detect curve (D-27, Task 0 option A)', () =>
     expect(shapedScore).toBeLessThan(abiWordsShapedScore);
     expect(shapedScore).toBeGreaterThan(hexShapedScore);
   });
+
+  // Plan 05 Task 2.
+  it('scores a 32-byte hex input 0.93 — strictly above plain hex, with the word-table decoder scoring 0 on this length', () => {
+    const txHashLike = `0x${'ab'.repeat(32)}`;
+    const calldataScore = decoder().canDecode(txHashLike);
+    const wordsScore = otherDecoder('abi-words').canDecode(txHashLike);
+    const hexScore = otherDecoder('hex').canDecode(txHashLike);
+
+    expect(calldataScore).toBe(0.93);
+    expect(calldataScore).toBeGreaterThan(hexScore);
+    expect(wordsScore).toBe(0);
+  });
+
+  it('the published ladder holds in one ordering assertion — a test checking only 0.93 against 0.9 would pass under the impossible ordering a previous revision asserted; this one would not', () => {
+    const hexScore = otherDecoder('hex').canDecode(`0x${'ab'.repeat(32)}`);
+    const shapedScore = decoder().canDecode(`0xdeadbeef${'0'.repeat(64)}`);
+    const txHashScore = decoder().canDecode(`0x${'ab'.repeat(32)}`);
+    const resolvedScore = decoder().canDecode(MINT_FROM_MOLOCH_CALLDATA);
+
+    expect(hexScore).toBeLessThan(shapedScore);
+    expect(shapedScore).toBeLessThan(txHashScore);
+    expect(txHashScore).toBeLessThan(resolvedScore);
+  });
+
+  it("the score constant's comment states the ladder correctly and does not misstate the comparison", () => {
+    const source = readFileSync(resolve(__dirname, '../src/dapps/decode/decoders-eth-calldata.ts'), 'utf-8');
+    expect(source).not.toContain('below both existing calldata rungs');
+    expect(source).not.toMatch(/tx hash.*below.*0\.95/i);
+    expect(source).toContain('(byteLength - 4) % 32 === 0');
+  });
+
+  it('scoring a 32-byte input calls nothing on a stubbed transaction source (detection stays synchronous and reaches no network)', () => {
+    let called = false;
+    const getTransaction = async (): Promise<TxLookupResult> => {
+      called = true;
+      return { unavailable: true };
+    };
+    // canDecode takes only the input string — no context, no way to reach a source at all. This
+    // test exists to pin that property against regression rather than to prove something
+    // canDecode's own signature already makes true; `getTransaction` above is never wired to
+    // anything canDecode can reach.
+    decoder().canDecode(`0x${'ab'.repeat(32)}`);
+    expect(called).toBe(false);
+    expect(typeof getTransaction).toBe('function');
+  });
 });
 
 // ── ETH-10/ETH-11/ETH-14 — shortening, annotation and linking (05-06 Task 1) ────────────────
@@ -606,6 +657,28 @@ describe('ETH-10/ETH-11/ETH-14 — shortening, annotation and linking (05-06 Tas
     const [addressArg] = output.node.children!;
     expect(addressArg.raw).toBe('0x5e58ba0e06ed0f5558f83be732a4b899a674053e');
   });
+
+  it('a decoded string argument claims display text so the renderer shows its text, not the hex of its own bytes', async () => {
+    const sig = 'setMetadata(string,string,string)';
+    const selector = keccak().selector(sig);
+    // Head: three tail offsets. Tail: each a length word plus one right-padded data word —
+    // 'Z', 'Z' and the empty string, the shape the reported payload actually carries.
+    const head = padWord('60') + padWord('a0') + padWord('e0');
+    const tail = padWord('1') + '5a'.padEnd(64, '0') + padWord('1') + '5a'.padEnd(64, '0') + padWord('0');
+    const output = await decoder().decode(`${selector}${head}${tail}`, {
+      ...makeCtx({ signatures: candidateLookup([{ signature: sig, source: 'openchain' }]) }),
+    });
+    const [first, second, third] = output.node.children!;
+
+    expect(first.type).toBe('string');
+    expect(first.display).toBe('text');
+    expect(first.value).toBe('Z');
+    // raw stays the payload hex — the copy contract is unchanged by the display mode.
+    expect(first.raw).toBe('0x5a');
+    expect(second.value).toBe('Z');
+    expect(third.value).toBe('');
+    expect(third.display).toBe('text');
+  });
 });
 
 // ── DEC-13 — the degraded-credentials sentence and the provenance ceiling (05-06 Task 3) ────
@@ -663,7 +736,7 @@ describe('DEC-13 — the degraded-credentials sentence and the provenance ceilin
     expect(malformed.node.warning).toBeDefined();
   });
 
-  it('ethProvenanceCeiling reports local for a bare context whatever the settings snapshot contains, registry when ctx.signatures is present, and verified only when BOTH ctx.abis and ctx.target are present', async () => {
+  it('ethProvenanceCeiling reports local for a bare context whatever the settings snapshot contains, registry when ctx.signatures is present, and verified when ctx.abis is present ALONE — Plan 05 Task 3 drops the top-level-target conjunct', async () => {
     const withApiKey = { etherscanApiKey: 'k' };
     const withRpc = { rpcUrl: 'https://rpc.example' };
     const withBoth = { etherscanApiKey: 'k', rpcUrl: 'https://rpc.example' };
@@ -676,9 +749,9 @@ describe('DEC-13 — the degraded-credentials sentence and the provenance ceilin
     };
 
     for (const settings of settingsAxis) {
-      // Neither ctx.signatures nor ctx.abis/ctx.target present: falls through to local — proven
-      // by the existing provenance assertions above; here we only need the SENTENCE not to
-      // claim a rung it cannot reach, checked below for each axis.
+      // Neither ctx.signatures nor ctx.abis present: falls through to local — proven by the
+      // existing provenance assertions above; here we only need the SENTENCE not to claim a
+      // rung it cannot reach, checked below for each axis.
       const bare = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx({ settings }));
       expect(bare.node.provenance).toBe('local');
 
@@ -691,22 +764,65 @@ describe('DEC-13 — the degraded-credentials sentence and the provenance ceilin
       // the actual resolution) is what the sentence must be derived from, not vice versa.
       expect(withSignatures.node.provenance).toBe('local');
 
-      // ctx.abis present but ctx.target absent: the verified rung is not reachable (ETH-05's
-      // own order — ctx.abis is never consulted without ctx.target), so the sentence for
-      // etherscanApiKey must still say "not wired yet", never a raises-claim.
+      // ctx.abis present, and NO top-level target anywhere on the context — a nested call's
+      // sibling target (Plan 06-02) is a real target this phase supplies, so the top-level-
+      // target conjunct this function used to require is gone: the sentence for etherscanApiKey
+      // now says it raises the rung whenever ctx.abis is present at all.
       const abisOnly = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx({ settings, abis: stubAbis }));
       if (!ethSettingPresentInSettings(settings, 'etherscanApiKey')) {
-        expect(abisOnly.node.warning).toContain('not wired yet');
+        expect(abisOnly.node.warning).not.toContain(
+          'etherscanApiKey is not set — the value is stored for a feature that is not wired yet',
+        );
       }
     }
   });
 
-  it('for a setting no shipped adapter consumes, the sentence says the value is stored for a feature that is not wired yet and never claims it raises the rung', async () => {
+  it('for a setting no shipped adapter consumes on a bare context, the sentence says the value is stored for a feature that is not wired yet and never claims it raises the rung', async () => {
     const output = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx());
     expect(output.node.warning).toContain(
       'etherscanApiKey is not set — the value is stored for a feature that is not wired yet',
     );
+    expect(output.node.warning).toContain(
+      'rpcUrl is not set — the value is stored for a feature that is not wired yet',
+    );
     expect(output.node.warning).not.toMatch(/etherscanApiKey.*raises/i);
+    expect(output.node.warning).not.toMatch(/rpcUrl.*raises/i);
+  });
+
+  it("the API key's note reads as a wired feature when a verified-ABI source is on the context, and as unwired when it is not — with no top-level target present in either case", async () => {
+    const stubAbis: AbiSourcePort = {
+      async getAbi() {
+        return null;
+      },
+    };
+
+    const withAbis = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx({ abis: stubAbis }));
+    expect(withAbis.node.warning).toContain('etherscanApiKey is not set — would let this decoder');
+    expect(withAbis.node.warning).not.toContain(
+      'etherscanApiKey is not set — the value is stored for a feature that is not wired yet',
+    );
+
+    const withoutAbis = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx());
+    expect(withoutAbis.node.warning).toContain(
+      'etherscanApiKey is not set — the value is stored for a feature that is not wired yet',
+    );
+  });
+
+  it("the endpoint URL's note reads as a wired feature when a transaction source is on the context, and as unwired when it is not", async () => {
+    const stubTxSource: TxSourcePort = {
+      async getTransaction() {
+        return { unavailable: true };
+      },
+    };
+
+    const withTxSource = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx({ txSource: stubTxSource }));
+    expect(withTxSource.node.warning).toContain('rpcUrl is not set — would let this decoder');
+    expect(withTxSource.node.warning).not.toMatch(/rpcUrl.*not wired yet/);
+
+    const withoutTxSource = await decoder().decode(MINT_FROM_MOLOCH_CALLDATA, makeCtx());
+    expect(withoutTxSource.node.warning).toContain(
+      'rpcUrl is not set — the value is stored for a feature that is not wired yet',
+    );
   });
 
   it("the decoder's declared settings array lists both credential keys, each required: false with a non-empty why", () => {

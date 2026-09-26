@@ -31,6 +31,39 @@ Phase 5 added four sub-keys alongside `core`/`codecs`/`registry`/`log`:
 - `window.DxDecode.signatures` — the local signature table plus the OpenChain/4byte registry
   adapters and the resolver that keccak-verifies a candidate before trusting it.
 
+Phase 6 added four more modules:
+
+- `annotators.ts` (`window.DxDecode.annotators`) — three ordered post-order passes over the
+  finished tree: the bounded cross-call recursion pass (`recurse`), the operation-argument
+  annotator (`annotateTree`/`annotateOp`), and the progressive contract-name walk
+  (`collectAddressNodes`/`patchContractNames`) that patches a resolved name into the tree without
+  blocking the initial render.
+- `abi-source.ts` (`window.DxDecode.abiSource`) — the verified-ABI source: fetches a target's
+  source-code entry through the shared transport, follows a proxy's implementation one level
+  (NET-09), and feeds both selector resolution's verified rung and, since this plan, contract-name
+  labelling.
+- `cache.ts` (`window.DxDecode.cache`) — the two-tier (in-memory plus browser-local persistence)
+  verified-ABI cache behind the portability guard's third named exemption — the annotators' name
+  walk is what makes every distinct address in a decoded tree cost one lookup per mounted session,
+  not one per node.
+- `tx-source.ts` (`window.DxDecode.txSource`) — the transaction lookup: the user's own RPC
+  endpoint first, the explorer's proxy module second — what a pasted 32-byte transaction hash
+  resolves through.
+
+A fifth followed, out of the original phase scope (REF-01's §7.4 slice), once real use showed a
+pasted deploy payload reading as an unresolved selector over thousands of undecoded bytes:
+
+- `creation-code.ts` (`window.DxDecode.creationCode`) — recognises contract creation bytecode by
+  its solc CBOR metadata tail (corroborated by an EVM init opcode in the first byte, without which
+  every `deployNext(bytes,bytes32)` CALL would be mistaken for the payload it carries) and splits
+  the constructor words off the compiled blob. Pure, like `abi.ts`: no ctx, no network, no DOM. It
+  is deliberately **not** a decoder — a deploy payload is usually an argument, so both the
+  top-level paste (`decoders-eth-calldata.ts`) and the recursion pass (`annotators.ts`, where it
+  is the guard handoff §6.5 step 5 demands before grafting a `bytes` argument as a nested call)
+  call the same module. Constructor words come out typed `address`, which is what hands them to
+  the existing shortening, linking and contract-name passes rather than re-implementing any of it.
+  Bytecode analysis proper — disassembly, selector recovery, immutables — remains REF-01, v2.
+
 ## Adding a decoder
 
 Registering a decoder and getting it to compile and load costs three touchpoints, no more. A
@@ -128,16 +161,21 @@ This directory is portable into any DxKit shell that satisfies two things:
   - `.tabs`, `.tab-content` — the Result/Raw/Log tab strip
   - `.results-area` — the right-hand column wrapper
 
-`DecodeContext` also carries three **optional** ports a host may supply, each of which a decoder
+`DecodeContext` also carries four **optional** ports a host may supply, each of which a decoder
 must treat as absent-capable rather than assumed:
 
 - `transport?: TransportPort` — a rate-limited, deduplicated, retried network primitive. This
   dapp's own `init()` constructs one from `window.DxDecode.transport` when that module loaded;
   a host that omits the module (or a decoder used standalone) sees `ctx.transport` as `undefined`.
-- `abis?: AbiSourcePort` — a verified-ABI lookup by target address. Not supplied by this dapp's
-  own composition root this phase (no adapter exists until Phase 6's Etherscan integration).
+- `abis?: AbiSourcePort` — a verified-ABI lookup by target address, supplied by this dapp's own
+  composition root as of Phase 6 (`window.DxDecode.abiSource`, cached by `window.DxDecode.cache`).
+  Feeds selector resolution's verified rung, the contract-name walk (ETH-12), and NET-09's
+  one-level proxy follow.
 - `signatures?: SignatureLookupPort` — the 4-byte-selector-to-signature resolver, backed here by
   `window.DxDecode.signatures`'s registry adapters when a transport is also present.
+- `txSource?: TxSourcePort` — a transaction lookup by hash, supplied by this dapp's own
+  composition root as of Phase 6 (`window.DxDecode.txSource`) — the user's own RPC endpoint
+  first, the explorer's proxy module second.
 
 ## Share links
 
@@ -280,5 +318,122 @@ stated once there and referenced rather than repeated here. Against the approved
 headroom** (32,000 − 27,061) remain before Phase 6's Etherscan ABI adapter and proxy follower.
 Gzip is the tighter of the two margins and is the figure that matters for real transfer cost.
 
-This is a **reported running total, confirmed against the full catalogue at the close of Phase 6 —
-not a threshold enforced by any test.**
+This was a **reported running total, confirmed against the full catalogue at the close of Phase 6 —
+not a threshold enforced by any test.** The confirmation below is that close.
+
+**Phase 6 measurement**, taken from a fresh build after this phase's own commits landed. The set
+is derived from `src/dapps/decode/manifest.json`'s `dependencies` array plus its `entry` — never a
+filesystem glob — because the transpiler runs with `clean: false` (`tsup.config.ts`), so a module
+removed or renamed from the entry list would leave its old compiled artefact sitting in the
+directory for a glob to keep counting toward both the size and the module count. Reproduce with:
+
+```
+npx tsup && node -e '
+const fs=require("node:fs");
+const m=require("./src/dapps/decode/manifest.json");
+const list=[...m.dependencies,m.entry].map((p)=>"src/"+p).sort();
+console.log(list.join(" "));
+' | xargs -I{} sh -c 'cat {} | wc -c; cat {} | gzip -9 | wc -c'
+```
+
+— concatenating the sorted, manifest-derived list for the uncompressed and concatenated-gzip
+figures, then each file's own `gzip -9 | wc -c` summed separately for the transfer estimate below.
+
+| Module | Bytes |
+|---|---|
+| `ui.js` | 29,535 |
+| `abi.js` | 18,139 |
+| `transport.js` | 16,094 |
+| `decoders-eth-calldata.js` | 12,769 |
+| `core.js` | 10,384 |
+| `annotators.js` | 7,656 |
+| `tx-source.js` | 6,804 |
+| `abi-source.js` | 6,370 |
+| `cache.js` | 6,071 |
+| `signatures.js` | 5,441 |
+| `decoders-abi-words.js` | 5,436 |
+| `decoders-url.js` | 4,713 |
+| `keccak.js` | 4,585 |
+| `codecs.js` | 4,342 |
+| `decoders-jwt.js` | 4,207 |
+| `decoders-base64.js` | 2,895 |
+| `decoders.js` (hex) | 1,863 |
+| `dapp.js` | 1,084 |
+| **Total (18 modules)** | **148,388** |
+
+**Four figures, per the Round 2 review disposition that added the fourth** (concatenated gzip
+alone understates real transfer cost for separately-loaded module scripts, each of which gets its
+own compression stream):
+
+| Metric | Value | Delta vs. Phase 5 close (110,397 / 27,061, 14 modules) |
+|---|---|---|
+| Uncompressed | **148,388 bytes** | +37,991 bytes (+34.4%) |
+| Gzipped (concatenated — the NORMATIVE DEC-16 metric) | **36,171 bytes** | +9,110 bytes (+33.7%) |
+| Gzipped (sum of per-file — reported, not gated) | **43,221 bytes** | not tracked before this phase |
+| Modules | **18** | +4 |
+
+- **DEC-16's pair is read decimally**: 128 KB is 128,000 bytes and 32 KB is 32,000 bytes — the
+  stricter of the two available readings (the binary reading would allow 131,072 / 32,768), so no
+  gate in this phase could ever have passed a payload the requirement forbade under the looser one.
+- **Concatenated gzip is the NORMATIVE DEC-16 metric** — it is what the budget was set against and
+  what every prior plan in this phase reported, so it is the only figure comparable across phases.
+  **Sum-of-per-file gzip is the transfer estimate, reported and never gated** — not by preference
+  but by arithmetic: measured on the 14-module tree this phase started from, concatenated `gzip -9`
+  was 27,315 bytes while the per-file sum was already **32,665 bytes — over the old 32,000 limit
+  before this phase wrote a line of code.** Gating on it would fail every phase for a condition
+  that predates all of them.
+- **The uncompressed total is concatenation-order independent; the gzipped total is not.** The
+  sorted manifest-derived order used here differs slightly from Phase 5's own shell-glob collation,
+  so a gzipped figure computed the two ways over the identical file set can differ by a handful of
+  bytes — a fact about ordering, not a regression.
+- **Both headline figures — 148,388 uncompressed and 36,171 gzipped — are now over the
+  previously-approved 128,000/32,000 pair.** Per the DEC-16 amendment (ratified ahead of this plan;
+  see `.planning/REQUIREMENTS.md`'s DEC-16 line for the full reasoning, referenced rather than
+  repeated here), this is **reported, not a phase failure**: no scope was shed to chase the old
+  number, no minify step was added, and DEC-16's pair itself was not moved. The binding constraints
+  remain DEC-05/R5 (no runtime dependencies, no CDN scripts, everything in-repo) and the
+  IPFS-servable, source-tree-*is*-the-site posture, for which size discipline is a proxy — not the
+  constraint itself.
+
+**The largest contributors to this plan's own increment** (145,488 → 148,388 uncompressed,
+35,543 → 36,171 gzipped, both close of 06-05): `ui.js` (the row-index/patch mechanism and its
+`onNodeUpdate` subscription, Task 2), `annotators.js` (the name walk, `annCollectAddressNodes`/
+`annPatchContractNames`, Task 1) and `decoders-eth-calldata.ts` (the update-channel wiring,
+Task 1) — the three files ETH-12 touched. Every other module in the directory is byte-identical to
+its 06-05 close.
+
+**The phase's own progression, module count and both headline figures, at the close of each plan**
+(uncompressed / gzipped-concatenated):
+
+| Plan | Modules | Uncompressed | Gzipped |
+|---|---|---|---|
+| Phase 5 close (baseline) | 14 | 110,397 | 27,061 |
+| 06-01 | 15 | 116,964 | 28,714 |
+| 06-02 | 15 | 119,921 | 29,507 |
+| 06-03 | 16 | 125,700 | 30,962 |
+| 06-04 | 17 | 133,239 | 32,732 |
+| 06-05 | 18 | 145,488 | 35,543 |
+| **06-06 (this plan, phase close)** | **18** | **148,388** | **36,171** |
+
+Measured against the tree at phase close, *after* the three `fix(06-review)` commits (CR-01,
+CR-02, WR-05). An earlier revision of this section reported 148,138 / 36,175, taken at the
+`docs(06-06)` measurement commit and therefore three commits stale; the review fixes added ~250
+bytes to `transport.js` and `abi-source.js` and removed a few from `tx-source.js`. The correction
+is recorded rather than silently overwritten because a reported metric that is quietly refreshed
+is no more trustworthy than a gate that is quietly raised — which is the whole reason DEC-16 is
+reported rather than gated. Note gzip is not monotonic in input size: the concatenated figure
+fell by 4 bytes while the uncompressed total rose by 250.
+
+**The shedding order and its reserve trigger** (recorded 06-01, restated here at the close, per
+this plan's own obligation): least user-visible first — the persistent cache tier, then the
+explorer leg of the transaction source, then POST Copy-as-cURL — triggered at 122,000 bytes
+uncompressed or 30,500 bytes gzipped. **The trigger fired at the close of Plan 03** (125,700
+uncompressed / 30,962 gzipped, both past the reserve though still under the then-hard 128,000/
+32,000 pair) and stayed fired for the rest of the phase. **Nothing was shed.** Plan 04 built the
+persistent cache tier in full; Plan 05 built the explorer transaction leg and extended
+Copy-as-cURL to POST, also in full — all three items in the recorded order were implemented
+rather than cut, once Plan 04's own blocking checkpoint ratified the DEC-16 restoration (a
+measured-and-reported metric, no longer a pass/fail ceiling) ahead of building any of them. The
+shedding order's own precondition — a gate that would otherwise have blocked the phase — no
+longer existed once that ratification landed, which is why an unfired-after-04 outcome was never
+in question: it fired once, early, and the phase kept building anyway, deliberately.
