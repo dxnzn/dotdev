@@ -11,13 +11,13 @@ DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 # Routes for history-mode stubs (keep in sync with dapp manifests)
 ROUTES := about projects support settings tools/cic tools/tpl
 
-.PHONY: help init vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
+.PHONY: help init vendor-preflight vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
 
 help:
 	@echo "Available commands:"
 	@echo "  make init        - Init Development"
 	@echo "  make setup       - Install npm dependencies"
-	@echo "  make vendor      - Build DxKit and vendor its IIFE + .d.ts"
+	@echo "  make vendor      - Vendor DxKit's prebuilt IIFE + .d.ts from $(DXKIT_ROOT)"
 	@echo "  make build       - Transpile TypeScript to JavaScript"
 	@echo "  make watch       - Transpile in watch mode"
 	@echo "  make serve       - Build, then serve src/ on :3000"
@@ -30,19 +30,39 @@ help:
 init:
 	bash ../shared/scripts/init.sh
 
-vendor:
-	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
-		echo "Building DxKit..."; \
-		$(MAKE) -C $(DXKIT_ROOT) setup build; \
+# Read-only gate: dotdev must never write under $(DXKIT_ROOT) (D-01). Asserting the
+# artifacts exist here — as a prerequisite, so it also covers `deploy` — is what replaces
+# the recursive `$(MAKE) -C $(DXKIT_ROOT)` this target used to run when they were missing.
+# A checked-out-but-unbuilt sibling now hard-fails with the command to run, by design.
+vendor-preflight:
+	@missing=""; \
+	for f in $(DXKIT_ROOT)/dist/index.global.js $(DXKIT_ROOT)/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/theme/dist/index.global.js $(DXKIT_ROOT)/plugins/theme/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/settings/dist/index.global.js $(DXKIT_ROOT)/plugins/settings/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/wallet/dist/index.global.js $(DXKIT_ROOT)/plugins/wallet/dist/index.d.ts; do \
+		test -f "$$f" || missing="$$missing $$f"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing DxKit artifacts:" >&2; \
+		for f in $$missing; do echo "  $$f" >&2; done; \
+		echo "" >&2; \
+		echo "Build them in the sibling checkout yourself — dotdev never writes there:" >&2; \
+		echo "  make -C $(DXKIT_ROOT) setup build" >&2; \
+		exit 1; \
 	fi
+	@echo "Preflight OK - all four DxKit artifact pairs present"
+
+vendor: vendor-preflight
 	@echo "Vendoring IIFE + .d.ts files..."
-	@mkdir -p $(SRC)/vendor/dxkit/theme $(SRC)/vendor/dxkit/settings
+	@mkdir -p $(SRC)/vendor/dxkit/theme $(SRC)/vendor/dxkit/settings $(SRC)/vendor/dxkit/wallet
 	@cp $(DXKIT_ROOT)/dist/index.global.js $(SRC)/vendor/dxkit/
 	@cp $(DXKIT_ROOT)/dist/index.d.ts $(SRC)/vendor/dxkit/
 	@cp $(DXKIT_ROOT)/plugins/theme/dist/index.global.js $(SRC)/vendor/dxkit/theme/
 	@cp $(DXKIT_ROOT)/plugins/theme/dist/index.d.ts $(SRC)/vendor/dxkit/theme/
 	@cp $(DXKIT_ROOT)/plugins/settings/dist/index.global.js $(SRC)/vendor/dxkit/settings/
 	@cp $(DXKIT_ROOT)/plugins/settings/dist/index.d.ts $(SRC)/vendor/dxkit/settings/
+	@cp $(DXKIT_ROOT)/plugins/wallet/dist/index.global.js $(SRC)/vendor/dxkit/wallet/
+	@cp $(DXKIT_ROOT)/plugins/wallet/dist/index.d.ts $(SRC)/vendor/dxkit/wallet/
 	@echo "Vendored to $(SRC)/vendor/dxkit/"
 
 setup:

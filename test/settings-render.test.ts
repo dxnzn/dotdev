@@ -16,6 +16,33 @@ function loadCompiled(relPath: string) {
   new Function('window', code)(window);
 }
 
+// src/dapps/settings/settings.ts hard-codes all three storage keys in the privacy notice's
+// prose, and has no import path to any of the consts that own them (no bundler at runtime).
+// This file used to hard-code them a fourth time, so nothing tied the copies together: a
+// rename would have left the notice naming a key that no longer exists with every case here
+// green — and the notice is the ONLY place a person is told which key holds their address.
+//
+// So the expected values are read out of the owning modules' own source. A renamed or reshaped
+// const throws at collection time, which fails this file rather than certifying stale prose.
+function declaredConst(relPath: string, name: string) {
+  const source = readFileSync(resolve(__dirname, relPath), 'utf-8');
+  const value = source.match(new RegExp(`const ${name} = '([^']+)';`))?.[1];
+  if (!value) throw new Error(`no single-quoted const ${name} in ${relPath}`);
+  return value;
+}
+
+// The root every other key is composed from. src/wallet-identity.ts declared its own copies of
+// the identity key and the settings blob key before 02-09 — both are gone now that the port
+// persists nothing, so there is nothing left to extract from that file for this suite.
+const STORAGE_NS = declaredConst('../src/main.ts', 'STORAGE_NS');
+// main.ts composes the wallet plugin's provider-id key from the namespace rather than declaring
+// it, so it is composed here the same way instead of extracted.
+const PROVIDER_ID_KEY = `${STORAGE_NS}:wallet`;
+// The identity key 02-09 retired. Composed the same way main.ts's one-way migration composes
+// it, so the "the notice must never name this" case below has something concrete to check
+// against without re-declaring a literal main.ts could drift from.
+const RETIRED_IDENTITY_KEY = `${STORAGE_NS}:wallet:identity`;
+
 beforeAll(() => {
   loadCompiled('../src/dapps/settings/fields.js');
   loadCompiled('../src/dapps/settings/sync.js');
@@ -1466,6 +1493,26 @@ describe('Task 2 (01-04): privacy notice at the top of the page', () => {
     return [{ id: 'ethereum', label: 'Ethereum', definitions: [ethDef] }];
   }
 
+  // Sentences are collected per <p>, never from notice.textContent: textContent concatenates
+  // paragraphs with no separator, so a whole-text split fuses the last sentence of one paragraph
+  // with the first of the next and two unrelated claims could then jointly satisfy a
+  // "one sentence says X and Y" assertion.
+  function sentencesIn(text: string) {
+    return (text || '').split(/(?<=[.!?])\s+/);
+  }
+
+  // The paragraph that names the provider-id key — the wallet paragraph, found this way since
+  // 02-09 the identity key it used to be found by is retired and must not appear at all. The
+  // scoped claims below exist for the same reason they always did: paragraph 2 already carries a
+  // backend-plus-negation sentence and paragraph 1 a plaintext/this-origin/devtools sentence, so
+  // an unscoped form of those cases would certify nothing about the wallet disclosure
+  // specifically — the same failure mode that sank the source-shape paragraph count
+  // (claude-fable, MEDIUM).
+  function walletParagraph(notice: Element) {
+    const paragraphs = Array.from(notice.querySelectorAll('p'));
+    return paragraphs.find((p) => (p.textContent || '').includes(PROVIDER_ID_KEY));
+  }
+
   it('renders exactly one .settings-privacy-notice, preceding the first .card in document order', () => {
     (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
     const container = document.createElement('div');
@@ -1483,15 +1530,27 @@ describe('Task 2 (01-04): privacy notice at the top of the page', () => {
     cleanup();
   });
 
-  it('names the storage key dnzn:dotdev:settings', () => {
+  it('names the settings blob key its owner declares', () => {
     (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
     const container = document.createElement('div');
     const cleanup = window.DnznSettingsDapp!.init(container);
 
     const notice = container.querySelector('.settings-privacy-notice')!;
-    expect(notice.textContent).toContain('dnzn:dotdev:settings');
+    expect(notice.textContent).toContain(SETTINGS_STORAGE_KEY);
 
     cleanup();
+  });
+
+  it('every owner of a key the notice names composes it from the one namespace', () => {
+    // The notice's two keys have two owners between them and no import path linking them. This
+    // is the case that makes the extractions above load-bearing: it fails if a rename reaches
+    // one owner and not the other, instead of leaving the notice to name a dead key. The
+    // duplicated-key guard this used to also carry (comparing SETTINGS_STORAGE_KEY to a second
+    // extraction of the same literal) is gone with 02-09: with the identity key retired, there
+    // is only one extraction left, and a tautology comparing it to itself would read as coverage
+    // it does not provide.
+    expect(STORAGE_NS).toBe('dnzn:dotdev');
+    expect(SETTINGS_STORAGE_KEY).toBe(`${STORAGE_NS}:settings`);
   });
 
   it('mentions plaintext, this browser, no backend, and devtools (case-insensitive)', () => {
@@ -1520,13 +1579,162 @@ describe('Task 2 (01-04): privacy notice at the top of the page', () => {
     cleanup();
   });
 
+  // T-02-41: the identity key is dead — 02-09's port persists nothing — so a notice naming it
+  // would send a reader looking in devtools for something that is not there. This is the
+  // opposite claim of the D-23 case it replaces.
+  it('never mentions the retired identity key', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    expect(notice.textContent).not.toContain(RETIRED_IDENTITY_KEY);
+
+    cleanup();
+  });
+
+  it('names the provider-id key as its own key', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    expect(notice.textContent).toContain(PROVIDER_ID_KEY);
+
+    cleanup();
+  });
+
+  it('renders exactly three paragraphs', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    expect(notice.querySelectorAll('p')).toHaveLength(3);
+
+    cleanup();
+  });
+
+  // The opposite claim of the pre-02-09 "last-known value" case: DEC-A retires the cache
+  // entirely, so the notice must say the address is not kept rather than imply it might be
+  // stale. This is the guard against the notice silently drifting back to describing one.
+  it('states the address is not stored: a wallet or address word paired with a not-stored claim', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = sentencesIn(walletParagraph(notice)!.textContent || '');
+    const matching = sentences.find(
+      (s) => /(address|wallet)/i.test(s) && /not stored|not\b[^.!?]*\bstored\b|nowhere/i.test(s),
+    );
+    expect(matching).toBeDefined();
+
+    cleanup();
+  });
+
+  it('says in the wallet paragraph itself that the values are plaintext and readable on this origin and by devtools', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = sentencesIn(walletParagraph(notice)!.textContent || '');
+    const matching = sentences.find((s) => /plaintext/i.test(s) && /this origin/i.test(s) && /devtools/i.test(s));
+    expect(matching).toBeDefined();
+
+    cleanup();
+  });
+
+  it('states the address is not sent to DNZN or any backend: a backend word and a negation in one sentence', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = sentencesIn(walletParagraph(notice)!.textContent || '');
+    const matching = sentences.find((s) => /(dnzn|backend)/i.test(s) && /\b(not|never|no|nothing)\b/i.test(s));
+    expect(matching).toBeDefined();
+
+    cleanup();
+  });
+
+  it('states nothing in this milestone signs with the address: a signing word and a negation in one sentence', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = sentencesIn(walletParagraph(notice)!.textContent || '');
+    const matching = sentences.find((s) => /sign/i.test(s) && /\b(not|never|no|nothing)\b/i.test(s));
+    expect(matching).toBeDefined();
+
+    cleanup();
+  });
+
+  it('names Copy as the explicit action by which the address can leave the page', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = Array.from(notice.querySelectorAll('p')).flatMap((p) => sentencesIn(p.textContent || ''));
+    const matching = sentences.find((s) => /copy/i.test(s) && /leaves? the page/i.test(s));
+    expect(matching).toBeDefined();
+
+    cleanup();
+  });
+
+  it('makes no unqualified non-transmission claim: every sending sentence names who receives it', () => {
+    (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
+    const container = document.createElement('div');
+    const cleanup = window.DnznSettingsDapp!.init(container);
+
+    // codex, HIGH (02-REVIEWS): 02-07 writes the full address to the OS clipboard, so an
+    // absolute "nothing sends it anywhere" sentence is false the moment this milestone
+    // completes. This forbids one from returning as a copy improvement — a sentence that
+    // mentions sending must name DNZN, a backend, a provider, or Copy.
+    const notice = container.querySelector('.settings-privacy-notice')!;
+    const sentences = Array.from(notice.querySelectorAll('p')).flatMap((p) => sentencesIn(p.textContent || ''));
+    // Word-anchored on both sides: an unbounded /sent/ matches "pre-sent-ation" in paragraph 1's
+    // "Field masking is presentation only." and /\bsent\w*/ would match "sentence", either of
+    // which turns an innocent sentence into a phantom sending claim.
+    const sending = sentences.filter((s) => /\b(transmits?|transmitted|sends?|sent)\b/i.test(s));
+    // Non-vacuity: the notice does discuss sending in two places (the provider sentence and the
+    // wallet carve-out), so an empty list means the disclosure lost a claim, not that it is safe.
+    expect(sending.length).toBeGreaterThanOrEqual(2);
+    for (const sentence of sending) {
+      expect(sentence).toMatch(/\b(dnzn|backend|providers?|copy)\b/i);
+    }
+
+    cleanup();
+  });
+
   it('does not contain any reassurance phrase, including a bare "unencrypted" disclosure', () => {
     (window as any).__DXKIT__ = makeStubDx(makeEthereumSections());
     const container = document.createElement('div');
     const cleanup = window.DnznSettingsDapp!.init(container);
 
     const text = (container.querySelector('.settings-privacy-notice')!.textContent || '').toLowerCase();
-    for (const phrase of ['is encrypted', 'are encrypted', 'stored securely', 'kept safe', 'your data is protected']) {
+    // Prohibition P7 (02-04) is a values constraint, not a style rule: the settings blob and the
+    // cached address are both plaintext localStorage, so no wording may imply either is private,
+    // secure, protected, safe, encrypted or unreadable by other scripts on this origin. Do not
+    // delete these as pedantry. Secondary guard only (codex, LOW — a phrase list blocks exact
+    // strings but cannot establish semantic honesty); the sentence-level cases above are what
+    // prove the disclosure says the true thing.
+    for (const phrase of [
+      'is encrypted',
+      'are encrypted',
+      'stored securely',
+      'kept safe',
+      'your data is protected',
+      'is private',
+      'stays private',
+      'is secure',
+      'is protected',
+      'is safe',
+      'only you',
+    ]) {
       expect(text).not.toContain(phrase);
     }
 
@@ -1711,7 +1919,9 @@ function dispatchStorage(key: string, newValue: string | null) {
   window.dispatchEvent(new StorageEvent('storage', { key, newValue: newValue as any }));
 }
 
-const SETTINGS_STORAGE_KEY = 'dnzn:dotdev:settings';
+// sync.ts's own copy of the blob key, extracted rather than repeated for the reason
+// declaredConst gives — and asserted equal to the port's copy in the notice suite above.
+const SETTINGS_STORAGE_KEY = declaredConst('../src/dapps/settings/sync.ts', 'SETTINGS_STORAGE_KEY');
 
 describe('Task 2 (01-05): attachExternalSync — cross-tab storage listener', () => {
   it('replays a diff through dx.settings.set for a valid JSON payload', () => {

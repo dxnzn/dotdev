@@ -28,6 +28,7 @@ function initShellChrome() {
   wireShareButton();
   wireThemePanel(dx, theme);
   wireSettingsButton(dx);
+  window.DnznWallet?.init(dx);
   wireNavigation(dx);
 
   // SET-09 / review finding A1: DxKit rebuilds its router and emits these on
@@ -122,9 +123,12 @@ function renderHeader(_dx, manifests) {
       <button class="settings-btn" id="settings-btn" title="Settings">
         <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
-      <button class="wallet-btn" id="wallet-btn" title="Connect wallet" disabled>
-        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><rect x="15" y="13" width="4" height="3" rx="1"/></svg>
-      </button>
+      <div class="wallet-panel" id="wallet-panel">
+        <button class="wallet-btn" id="wallet-btn" title="Wallet">
+          <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><rect x="15" y="13" width="4" height="3" rx="1"/></svg>
+        </button>
+        <div class="wallet-menu" id="wallet-menu"></div>
+      </div>
     </div>`;
 }
 
@@ -134,31 +138,59 @@ function renderFooter() {
   footerEl.innerHTML = `by <strong>Denizen.</strong> // dnzn.wei`;
 }
 
+// The three header dropdowns, resolved on every call rather than captured once: renderHeader
+// rebuilds the header's innerHTML, so a cached list would hold detached nodes.
+function dropdownEntries() {
+  return [
+    { wrapper: document.getElementById('app-dropdown'), trigger: document.getElementById('app-trigger') },
+    { wrapper: document.getElementById('theme-panel'), trigger: document.getElementById('theme-panel-trigger') },
+    { wrapper: document.getElementById('wallet-panel'), trigger: document.getElementById('wallet-btn') },
+  ].filter((entry) => entry.wrapper && entry.trigger);
+}
+
+// The one closer every header control uses, so aria-expanded cannot drift from the .open
+// class whichever control closed the menu. src/shell-wallet.ts deliberately does NOT call
+// this — shell.js and shell-wallet.js are separately transpiled with no import path between
+// them, so it closes only the wrapper it owns, with the same two mutations.
+function closeAllDropdowns() {
+  for (const entry of dropdownEntries()) {
+    entry.wrapper.classList.remove('open');
+    entry.trigger.setAttribute('aria-expanded', 'false');
+  }
+}
+
 function wireDropdowns() {
-  const appTrigger = document.getElementById('app-trigger');
-  const appDropdown = document.getElementById('app-dropdown');
-  const themePanel = document.getElementById('theme-panel');
-  const themeTrigger = document.getElementById('theme-panel-trigger');
+  for (const entry of dropdownEntries()) {
+    const { wrapper, trigger } = entry;
+    trigger.setAttribute('aria-haspopup', 'true');
+    trigger.setAttribute('aria-expanded', 'false');
 
-  if (appTrigger && appDropdown) {
-    appTrigger.addEventListener('click', (e) => {
+    trigger.addEventListener('click', (e) => {
+      // Without stopPropagation the document handler below immediately re-closes this.
       e.stopPropagation();
-      if (themePanel) themePanel.classList.remove('open');
-      appDropdown.classList.toggle('open');
+      // Read the class before closing, so the trigger still toggles its own panel shut
+      // rather than reopening it.
+      const wasOpen = wrapper.classList.contains('open');
+      closeAllDropdowns();
+      if (!wasOpen) {
+        wrapper.classList.add('open');
+        trigger.setAttribute('aria-expanded', 'true');
+      }
     });
   }
 
-  if (themeTrigger && themePanel) {
-    themeTrigger.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (appDropdown) appDropdown.classList.remove('open');
-      themePanel.classList.toggle('open');
-    });
-  }
-
+  // Exactly one document listener per type, added once. There is no removal path, so a
+  // second wireDropdowns() call would leak one per invocation — see refreshNavMenu's comment.
   document.addEventListener('click', () => {
-    if (appDropdown) appDropdown.classList.remove('open');
-    if (themePanel) themePanel.classList.remove('open');
+    closeAllDropdowns();
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    const open = dropdownEntries().find((entry) => entry.wrapper.classList.contains('open'));
+    if (!open) return;
+    closeAllDropdowns();
+    open.trigger.focus();
   });
 }
 
@@ -179,8 +211,7 @@ function wireSettingsButton(dx) {
   if (!settingsBtn) return;
 
   settingsBtn.addEventListener('click', () => {
-    document.getElementById('app-dropdown')?.classList.remove('open');
-    document.getElementById('theme-panel')?.classList.remove('open');
+    closeAllDropdowns();
     dx.router.navigate('/settings');
   });
 }

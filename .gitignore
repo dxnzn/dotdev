@@ -11,6 +11,8 @@ src/vendor/
 # Compiled JS output (generated from .ts by tsup)
 src/main.js
 src/shell.js
+src/wallet-identity.js
+src/shell-wallet.js
 src/dapps/*/dapp.js
 src/dapps/cic/cic.js
 src/plugins/*.js

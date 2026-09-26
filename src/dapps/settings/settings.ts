@@ -74,8 +74,15 @@
   // D-31/SET-08: this notice carries the whole disclosure once, at the top of the page —
   // there is no per-field inline plaintext hint. Built as DOM nodes with no interpolated
   // value of any kind (it never touches a stored setting), so it cannot leak one by
-  // construction. Concise by design (01-04 UAT gap: audience is technical) — two short
+  // construction. Concise by design (01-04 UAT gap: audience is technical) — three
   // paragraphs, not a restatement of what a technical reader already knows.
+  //
+  // The third paragraph changed shape at 02-09: there is no cache left to disclose. The site
+  // asks the wallet directly, on every load, which account it currently authorises for this
+  // origin, and holds the answer in memory only — nothing about it is written to storage. The
+  // wallet plugin's own provider-id key survives (it is the plugin's, not this site's, and this
+  // site deletes it on every load), so it still gets named alongside the address it no longer
+  // stores.
   function buildPrivacyNotice() {
     const notice = document.createElement('div');
     notice.className = 'settings-privacy-notice';
@@ -90,6 +97,14 @@
         'any script on this origin and devtools can read it. Field masking is presentation only.',
       'No backend, so nothing reaches DNZN — but your credentials are sent to the providers ' +
         'you configure them for, Etherscan and your RPC.',
+      'Connecting a wallet asks your wallet directly, on each load, which account it currently ' +
+        'authorises for this origin — that answer is held in memory for as long as this page is ' +
+        'open and is not stored anywhere. The wallet plugin separately records which provider ' +
+        'you used under dnzn:dotdev:wallet, in plaintext — any script on this origin and ' +
+        'devtools can read it — and this site deletes that key on every load. The address is ' +
+        'supplied locally by your wallet, is not sent to DNZN or any backend, and leaves the ' +
+        'page only when you take an explicit action such as Copy. Nothing in this milestone ' +
+        'signs with it, and no key material is handled anywhere on this site.',
     ];
     for (const text of paragraphs) {
       const p = document.createElement('p');

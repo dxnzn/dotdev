@@ -4,6 +4,8 @@ export default defineConfig({
   entry: [
     'src/main.ts',
     'src/shell.ts',
+    'src/shell-wallet.ts',
+    'src/wallet-identity.ts',
     'src/dapps/about/dapp.ts',
     'src/dapps/projects/dapp.ts',
     'src/dapps/support/dapp.ts',
