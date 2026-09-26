@@ -1,8 +1,8 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic'] as const;
+const DAPP_IDS = ['about', 'projects', 'support', 'tpl', 'cic', 'decode', 'settings'] as const;
 const SRC = resolve(__dirname, '../src');
 
 function loadManifest(id: string) {
@@ -41,6 +41,18 @@ describe('dapp manifests', () => {
         expect(existsSync(resolve(SRC, `dapps/${id}/template.html`))).toBe(true);
       });
 
+      it('every dependency entry resolves to an existing TypeScript source file', () => {
+        // Skip: entry/styles/template.html above already cover the two-file dapp pattern
+        // (CIC, settings) fully — only a manifest with a dependencies array (a multi-module
+        // dapp) has anything for this case to walk. Covers decode's four modules and
+        // retroactively covers CIC's and settings' own dependencies too.
+        if (!manifest.dependencies || manifest.dependencies.length === 0) return;
+        for (const dependency of manifest.dependencies) {
+          const tsDependency = dependency.replace('.js', '.ts');
+          expect(existsSync(resolve(SRC, tsDependency)), `missing ${tsDependency}`).toBe(true);
+        }
+      });
+
       it('nav has label, group, and order', () => {
         expect(manifest.nav).toHaveProperty('label');
         expect(manifest.nav).toHaveProperty('group');
@@ -72,6 +84,38 @@ describe('dapp lifecycle wiring', () => {
   }
 });
 
+describe('decode dapp — DEC-15 (a licence and a README, both present)', () => {
+  // Scoped to decode alone, not walked over DAPP_IDS: the existing dapps do not all ship a
+  // LICENSE or a README of their own (CIC's LICENSE is the precedent decode follows; the others
+  // have neither) — asserting this for every id would fail retroactively for dapps that never
+  // promised either. Plan 03-04 shipped the licence and asserted its content; this closes the
+  // loop by asserting BOTH files are present for the one dapp DEC-15 actually names.
+
+  it('ships a LICENSE file', () => {
+    expect(existsSync(resolve(SRC, 'dapps/decode/LICENSE'))).toBe(true);
+  });
+
+  it('ships a README.md file', () => {
+    expect(existsSync(resolve(SRC, 'dapps/decode/README.md'))).toBe(true);
+  });
+});
+
+describe('decode dapp — G-06-10 (the About tab version label matches the manifest)', () => {
+  // The version lives twice on purpose: once as the runtime source of truth (manifest.json),
+  // once as copy inside template.html for the About tab (there is no runtime read — see
+  // ui.ts's setActiveTab, which never touches manifest.json). This test is the only thing
+  // that keeps the two in step; reading both from disk here, rather than restating the number
+  // as a literal, is what stops the assertion itself going stale.
+
+  it("the template's version-label text contains the manifest's version field", () => {
+    const manifest = loadManifest('decode');
+    const template = readFileSync(resolve(SRC, 'dapps/decode/template.html'), 'utf-8');
+    const match = /class="version-label"[^>]*>([^<]+)</.exec(template);
+    expect(match, 'no .version-label element found in decode/template.html').not.toBeNull();
+    expect(match![1]).toContain(manifest.version);
+  });
+});
+
 describe('cic dapp — manifest dependencies', () => {
   const src = loadDappSource('cic');
   const manifest = loadManifest('cic');
@@ -87,5 +131,37 @@ describe('cic dapp — manifest dependencies', () => {
 
   it('calls window.CIC.init with container and isReport', () => {
     expect(src).toContain('window.CIC.init');
+  });
+});
+
+// A source comment may cite a sibling checkout — ../dxkit is the whole point of `make vendor` — but
+// never by the absolute path it happens to sit at on one machine. That path names the directory
+// above this repo, which is the one thing a tracked file must not carry: every reference is written
+// unqualified so the same tree works wherever it is checked out.
+describe('tracked sources cite a sibling checkout relatively, never by absolute path', () => {
+  const ROOT = resolve(__dirname, '..');
+  const SIBLINGS = ['dxkit', 'shared', 'planning'];
+
+  function listSources(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'vendor' || entry.name.startsWith('.')) continue;
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) out.push(...listSources(full));
+      else if (/\.(ts|css|html|json|md)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) out.push(full);
+    }
+    return out;
+  }
+
+  it('no tracked source names a sibling checkout by an absolute filesystem path', () => {
+    const pattern = new RegExp(`(^|[\\s(\\['"\`])/[\\w.-]+/(${SIBLINGS.join('|')})/`);
+    const offenders: string[] = [];
+    for (const file of [...listSources(resolve(ROOT, 'src')), ...listSources(resolve(ROOT, 'test'))]) {
+      const lines = readFileSync(file, 'utf-8').split('\n');
+      for (const [i, line] of lines.entries()) {
+        if (pattern.test(line)) offenders.push(`${file.slice(ROOT.length + 1)}:${i + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

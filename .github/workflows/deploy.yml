@@ -14,13 +14,16 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
 
       - name: Install dependencies
         run: npm ci
 
       - name: Lint
         run: make lint
+
+      - name: Build
+        run: npx tsup
 
       - name: Test
         run: npx vitest run

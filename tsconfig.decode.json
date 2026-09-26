@@ -1,0 +1,20 @@
+{
+  // Phase-local typecheck project for src/dapps/decode/**. Fixes the review's verified
+  // finding X-1: repo-wide `npx tsc --noEmit` reports 314 errors on a clean tree because
+  // tsconfig.json's `strict: true` applies over src/**/*.ts while this repo's shipped IIFE
+  // dapp, plugin and shell modules were never written to satisfy it. Gating any task on that
+  // command produces a red no work in this phase can turn green — a gate with no failing
+  // direction. Scoping the gate instead of deleting it is what proves DEC-14's "the directory
+  // typechecks on its own terms" claim.
+  //
+  // Extends the root config and overrides ONLY `include` — every compiler option, `strict`
+  // and `skipLibCheck` included, is inherited rather than relaxed. Repo-wide tsc is
+  // deliberately not run by any plan in this phase; cleaning up 314 pre-existing errors in
+  // modules this phase does not own is not this phase's work.
+  "extends": "./tsconfig.json",
+  // The `*.ts` pattern also matches `types.d.ts` — that is the point: the declaration file is
+  // the contract this gate exists to check. `src/types/globals.d.ts` is included so the
+  // dapp's references to the host shell object resolve; its vendored `import(...)` type
+  // references are lib-file references the inherited `skipLibCheck` already suppresses.
+  "include": ["src/dapps/decode/**/*.ts", "src/types/globals.d.ts"]
+}

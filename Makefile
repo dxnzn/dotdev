@@ -3,29 +3,67 @@ SRC := src
 DIST := dist
 SITE := _site
 VERSION_FILE := BUILD_VERSION
+PORT := 3333
 
 DATE := $(shell date +%Y%m%d)
 ITER := $(shell cat $(VERSION_FILE))
 DIST_NAME := dnzn.dev-$(DATE).$(ITER)
 
 # Routes for history-mode stubs (keep in sync with dapp manifests)
-ROUTES := about projects support tools/cic tools/tpl
+ROUTES := about projects support settings tools/cic tools/tpl tools/decode
 
-.PHONY: vendor serve build watch setup dist dist-history-stubs clean bump-version lint lint-fix lint-format test test-watch commit release prepare-site deploy
+.PHONY: help init vendor-preflight vendor serve build watch setup dist dist-history-stubs clean bump-version typecheck lint lint-fix lint-format test test-watch commit release prepare-site deploy
 
-vendor:
-	@if [ ! -f $(DXKIT_ROOT)/dist/index.global.js ]; then \
-		echo "Building DxKit..."; \
-		$(MAKE) -C $(DXKIT_ROOT) setup build; \
+help:
+	@echo "Available commands:"
+	@echo "  make init        - Init Development"
+	@echo "  make setup       - Install npm dependencies"
+	@echo "  make vendor      - Vendor DxKit's prebuilt IIFE + .d.ts from $(DXKIT_ROOT)"
+	@echo "  make build       - Transpile TypeScript to JavaScript"
+	@echo "  make watch       - Transpile in watch mode"
+	@echo "  make serve       - Build, then serve src/ on :$(PORT)"
+	@echo "  make lint        - Run biome"
+	@echo "  make test        - Lint, then run vitest"
+	@echo "  make dist        - Build a versioned dist/ folder"
+	@echo "  make deploy      - Build, test, and push to gh-pages"
+	@echo "  make clean       - Remove dist/"
+
+init:
+	bash ../shared/scripts/init.sh
+
+# Read-only gate: dotdev must never write under $(DXKIT_ROOT) (D-01). Asserting the
+# artifacts exist here — as a prerequisite, so it also covers `deploy` — is what replaces
+# the recursive `$(MAKE) -C $(DXKIT_ROOT)` this target used to run when they were missing.
+# A checked-out-but-unbuilt sibling now hard-fails with the command to run, by design.
+vendor-preflight:
+	@missing=""; \
+	for f in $(DXKIT_ROOT)/dist/index.global.js $(DXKIT_ROOT)/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/theme/dist/index.global.js $(DXKIT_ROOT)/plugins/theme/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/settings/dist/index.global.js $(DXKIT_ROOT)/plugins/settings/dist/index.d.ts \
+		$(DXKIT_ROOT)/plugins/wallet/dist/index.global.js $(DXKIT_ROOT)/plugins/wallet/dist/index.d.ts; do \
+		test -f "$$f" || missing="$$missing $$f"; \
+	done; \
+	if [ -n "$$missing" ]; then \
+		echo "Missing DxKit artifacts:" >&2; \
+		for f in $$missing; do echo "  $$f" >&2; done; \
+		echo "" >&2; \
+		echo "Build them in the sibling checkout yourself — dotdev never writes there:" >&2; \
+		echo "  make -C $(DXKIT_ROOT) setup build" >&2; \
+		exit 1; \
 	fi
+	@echo "Preflight OK - all four DxKit artifact pairs present"
+
+vendor: vendor-preflight
 	@echo "Vendoring IIFE + .d.ts files..."
-	@mkdir -p $(SRC)/vendor/dxkit/theme $(SRC)/vendor/dxkit/settings
+	@mkdir -p $(SRC)/vendor/dxkit/theme $(SRC)/vendor/dxkit/settings $(SRC)/vendor/dxkit/wallet
 	@cp $(DXKIT_ROOT)/dist/index.global.js $(SRC)/vendor/dxkit/
 	@cp $(DXKIT_ROOT)/dist/index.d.ts $(SRC)/vendor/dxkit/
 	@cp $(DXKIT_ROOT)/plugins/theme/dist/index.global.js $(SRC)/vendor/dxkit/theme/
 	@cp $(DXKIT_ROOT)/plugins/theme/dist/index.d.ts $(SRC)/vendor/dxkit/theme/
 	@cp $(DXKIT_ROOT)/plugins/settings/dist/index.global.js $(SRC)/vendor/dxkit/settings/
 	@cp $(DXKIT_ROOT)/plugins/settings/dist/index.d.ts $(SRC)/vendor/dxkit/settings/
+	@cp $(DXKIT_ROOT)/plugins/wallet/dist/index.global.js $(SRC)/vendor/dxkit/wallet/
+	@cp $(DXKIT_ROOT)/plugins/wallet/dist/index.d.ts $(SRC)/vendor/dxkit/wallet/
 	@echo "Vendored to $(SRC)/vendor/dxkit/"
 
 setup:
@@ -40,8 +78,8 @@ watch:
 	@npx tsup --watch
 
 serve: build
-	@echo "Serving $(SRC)/ on http://localhost:3000 (no live reload)"
-	@npx serve $(SRC)/ --no-request-logging
+	@echo "Serving $(SRC)/ on http://localhost:$(PORT) (no live reload)"
+	@npx serve $(SRC)/ -l $(PORT) --no-request-logging
 
 bump-version:
 	@echo $$(( $(ITER) + 1 )) > $(VERSION_FILE)
@@ -65,7 +103,13 @@ dist-history-stubs: build bump-version
 	done
 	@echo "Dist with history stubs created: $(DIST)/$(DIST_NAME).history-stubs"
 
-lint:
+# WR-02: tsconfig.decode.json was gated by nothing until now — `npx tsc -p tsconfig.decode.json`
+# was only ever run by hand, so it wasn't actually enforcing the decode dapp's scoped contract
+# typecheck. `lint` (and therefore `test`, and CI's `make lint`) now runs it first.
+typecheck:
+	npx tsc -p tsconfig.decode.json --noEmit
+
+lint: typecheck
 	npx biome check .
 
 lint-fix:
@@ -74,10 +118,10 @@ lint-fix:
 lint-format:
 	npx biome format --write .
 
-test: lint
+test: lint build
 	npx vitest run
 
-test-watch: lint
+test-watch: lint build
 	npx vitest
 
 commit:

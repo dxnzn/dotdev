@@ -1,0 +1,18 @@
+{
+  "id": "settings",
+  "name": "Settings",
+  "description": "DNZN // SETTINGS - Global settings for every dapp and plugin.",
+  "version": "1.0.0",
+  "route": "/settings",
+  "entry": "dapps/settings/dapp.js",
+  "template": "dapps/settings/template.html",
+  "styles": "dapps/settings/style.css",
+  "dependencies": ["dapps/settings/fields.js", "dapps/settings/sync.js", "dapps/settings/settings.js"],
+  "requires": { "plugins": ["settings"] },
+  "nav": {
+    "label": "Settings",
+    "group": "main",
+    "order": 99,
+    "hidden": true
+  }
+}

@@ -1,3 +1,8 @@
+.planning
+.envrc.local
+.claude/settings.local.json
+
+# Project ignores below.
 dist/
 _site/
 node_modules/
@@ -6,5 +11,17 @@ src/vendor/
 # Compiled JS output (generated from .ts by tsup)
 src/main.js
 src/shell.js
+src/wallet-identity.js
+src/shell-wallet.js
+src/share-target.js
 src/dapps/*/dapp.js
 src/dapps/cic/cic.js
+src/plugins/*.js
+src/dapps/settings/settings.js
+src/dapps/settings/fields.js
+src/dapps/settings/sync.js
+src/dapps/decode/*.js
+
+# Scratch dir for agent-targeted feedback notes (see AGENTS.md) — contents untracked
+tmp/*
+!tmp/.gitkeep

@@ -1,0 +1,7 @@
+# Self-contained: never add an extend.path outside this repo.
+title = "project"
+
+[extend]
+useDefault = true
+
+# Project rules and allowlists below.

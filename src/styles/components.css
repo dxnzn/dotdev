@@ -28,18 +28,63 @@
   display: flex; gap: 0; background: var(--bg-input);
   border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
 }
+/* G-06-8: a bare .btn-group (no size modifier) now has real padding and font-size of its own,
+   rather than rendering at the browser's zero-padding default — #decode-actions is the only
+   consumer that has ever hit this, every other .btn-group in the tree carries --sm below. This
+   is deliberately TALLER than --sm (0.7rem vs 0.5rem vertical padding): the base rule is the
+   "give me the pill look with more height" size, --sm is the compact one. */
 .btn-group button {
   flex: 1; font-family: var(--font-mono); background: transparent;
   border: none; color: var(--text-muted); cursor: pointer;
   transition: all 0.15s; border-right: 1px solid var(--border);
+  padding: 0.7rem 0.75rem; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.04em;
 }
 .btn-group button:last-child { border-right: none; }
 .btn-group button.active { background: var(--accent-dim); color: var(--accent); }
 .btn-group button:hover:not(.active) { color: var(--text-dim); background: rgba(255,255,255,0.03); }
+/* G-06-8: pressed state — the site's first. It has to beat the :hover rule above, because the
+   pointer is necessarily hovering for the whole duration of a press. WR-04: it wins on SOURCE
+   ORDER, not specificity — :not(.active) and :not(:disabled) each contribute the same 0-1-0, so
+   both selectors are 0-3-1 and the later one applies. Moving this rule above the :hover rule
+   therefore silently kills the pressed feedback for every mouse user. :not(:disabled) earns its
+   place as a real condition (a disabled control must never flash), not as a specificity tiebreak;
+   deleting it would make disabled controls flash rather than change which rule wins. No separate .is-pressed class for
+   keyboard activation: :active already covers Space-held and Enter's brief active state, so a
+   second mechanism would be dead weight. .tabs button is deliberately NOT given this treatment —
+   a tab already announces itself by becoming .active on the same click, so a pressed state there
+   would be feedback for something that already shows feedback. */
+.btn-group button:active:not(:disabled) { background: var(--accent-dim); color: var(--accent); }
 
+/* .btn-group--sm button and .btn-group button above share specificity (0-1-1) — --sm wins only
+   because it appears LATER in this file. Reordering these two rules silently un-sizes every
+   --sm consumer (CIC, tpl). Restating font-weight/letter-spacing here is redundant now that the
+   base rule also sets them; left as-is (byte-identical to before this plan) so this block's diff
+   is exactly the base-rule and pressed-state additions above, nothing here. */
 .btn-group--sm button {
   padding: 0.5rem 0.25rem; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.04em;
 }
+
+/* ── SWITCH (UI-05, role=switch boolean control) ──
+   Square, not a pill — --radius is 0 site-wide and this is no exception. */
+.switch {
+  position: relative; display: inline-block; flex-shrink: 0;
+  width: 40px; height: 20px; padding: 0;
+  background: var(--bg-input); border: 1px solid var(--border);
+  border-radius: var(--radius); cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, box-shadow 0.15s;
+}
+.switch .switch-thumb {
+  position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; background: var(--text-muted);
+  transition: transform 0.15s, background-color 0.15s;
+}
+.switch[aria-checked="true"] { background: var(--accent-dim); border-color: var(--accent); }
+.switch[aria-checked="true"] .switch-thumb { background: var(--accent); transform: translateX(20px); }
+.switch:hover:not(:disabled) { border-color: var(--border-focus); }
+.switch:focus-visible {
+  outline: none; box-shadow: 0 0 0 3px var(--accent-dim); border-color: var(--border-focus);
+}
+.switch:disabled { cursor: not-allowed; }
 
 /* ── CARD ── */
 .card {
@@ -93,6 +138,74 @@
 }
 .input-wrap.has-prefix input { padding-left: 28px; }
 .input-wrap.has-suffix input { padding-right: 36px; }
+
+/* ── SELECT (UI-04) ──
+   Global, not scoped to settings — appearance:none removes the native arrow
+   site-wide, so every <select> the served tree renders (today, only the one
+   fields.ts builds) must be wrapped in .select-wrap or it has no arrow at all. */
+select {
+  width: 100%; background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 0.65rem 2.25rem 0.65rem 0.75rem; font-family: var(--font-mono);
+  font-size: 0.95rem; font-weight: 500; color: var(--text); outline: none;
+  cursor: pointer; appearance: none; -webkit-appearance: none;
+}
+select:focus-visible {
+  border-color: var(--border-focus); box-shadow: 0 0 0 3px var(--accent-dim);
+}
+option { background: var(--bg-card); color: var(--text); }
+
+.select-wrap { position: relative; display: flex; align-items: center; }
+.select-wrap::after {
+  content: ''; position: absolute; right: 0.85rem;
+  width: 11px; height: 11px; pointer-events: none;
+  color: var(--text-muted); background-color: currentColor;
+  /* The chevron itself carries no paint attribute (see the data URI) — it relies on the
+     SVG's default opaque fill purely for mask alpha. Tinting is entirely
+     background-color:currentColor, which is why the arrow follows all three themes and
+     both modes; a colour-baked background-image data URI would not. */
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 15.4 4.6 8l1.4-1.4 6 6 6-6L19.4 8z'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 15.4 4.6 8l1.4-1.4 6 6 6-6L19.4 8z'/%3E%3C/svg%3E");
+  -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat;
+  -webkit-mask-position: center; mask-position: center;
+  -webkit-mask-size: contain; mask-size: contain;
+}
+.select-wrap:hover::after, .select-wrap:focus-within::after { color: var(--accent); }
+
+/* ── CONTROL STRIP (settings per-field commit/revert/reveal, D-13) ──
+   Sibling modifiers to .has-suffix, not a replacement — .has-suffix stays sized for
+   exactly one static label (CIC/TPL currency and percent suffixes). These scale
+   padding for 1-3 interactive buttons instead. */
+.input-wrap.has-controls-1 input { padding-right: 36px; }
+.input-wrap.has-controls-2 input { padding-right: 68px; }
+.input-wrap.has-controls-3 input { padding-right: 100px; }
+
+.input-wrap .controls {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; gap: 2px; z-index: 2;
+}
+.input-wrap .controls button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; padding: 0; background: transparent; border: none;
+  border-radius: var(--radius); color: var(--text-muted); cursor: pointer;
+  transition: color 0.15s, background-color 0.15s;
+}
+/* fill:none + stroke:currentColor is what makes the sibling :hover and .is-active
+   colour rules below actually paint something — without it the SVGs render with
+   the default black fill and those rules are no-ops. */
+.input-wrap .controls button svg {
+  width: 15px; height: 15px;
+  fill: none; stroke: currentColor; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.input-wrap .controls button:hover,
+.input-wrap .controls button:focus-visible { color: var(--accent); }
+.input-wrap .controls button:focus-visible {
+  outline: none; box-shadow: 0 0 0 2px var(--accent-dim);
+}
+.input-wrap .controls button.is-active { color: var(--accent); }
+
+.input-wrap.is-dirty input { border-color: var(--accent); }
 
 .rate-control { display: flex; align-items: center; gap: 0.75rem; }
 .rate-control input[type="range"] { flex: 1; height: 4px; -webkit-appearance: none; appearance: none; background: var(--border); border-radius: 2px; outline: none; cursor: pointer; }
@@ -241,6 +354,10 @@
   transition: all 0.15s; margin-top: 1.5rem;
 }
 .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* G-06-8: pressed state, same accent pair .copy-btn:hover already uses. Specificity is not
+   contested here (both 0-2-0, later wins), so the plain :active form is enough — no
+   :not(:disabled) needed, unlike .btn-group button above. */
+.copy-btn:active { border-color: var(--accent); color: var(--accent); }
 
 /* ── SECTION TITLE (reusable) ── */
 .section-title {
