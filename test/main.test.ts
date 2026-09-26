@@ -68,8 +68,11 @@ describe('main — shell configuration', () => {
   it('also clears the retired wallet identity key before the shell is constructed, composed from STORAGE_NS', () => {
     const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
     const createAt = main.indexOf('DxKit.createShell');
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: searching source text for the
-    // literal template-literal syntax main.ts uses, not interpolating one here.
+    // Both searches look for the literal template-literal syntax main.ts uses; nothing here
+    // interpolates. The directive has to be the LAST comment line before the statement — a
+    // rationale wrapped onto a second line detaches it, which is how this suppression sat unused
+    // while the diagnostic it names fired anyway.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal to search for.
     const providerClearAt = main.indexOf('removeItem(`${STORAGE_NS}:wallet`)');
     // biome-ignore lint/suspicious/noTemplateCurlyInString: same — a literal to search for.
     const identityClearAt = main.indexOf('removeItem(`${STORAGE_NS}:wallet:identity`)');

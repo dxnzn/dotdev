@@ -230,14 +230,14 @@ describe('eth-calldata — the tracer vertical (ETH-01, ETH-05)', () => {
     // A hand-crafted "local" source whose one candidate signature does not actually hash to
     // the selector being resolved — D-21's verification must reject it rather than decode
     // against a mismatched signature.
-    const wrongSelectorCalldata = '0xdeadbeef' + '0'.repeat(64);
+    const wrongSelectorCalldata = `0xdeadbeef${'0'.repeat(64)}`;
     const output = await decoder().decode(wrongSelectorCalldata, makeCtx());
 
     expect(output.node.provenance).toBe('unresolved');
   });
 
   it('an unresolved decode carries a non-null rawBytes (payload byte length) AND rawView word-table, in the same test', async () => {
-    const unresolvedCalldata = '0xdeadbeef' + '0'.repeat(64);
+    const unresolvedCalldata = `0xdeadbeef${'0'.repeat(64)}`;
     const output = await decoder().decode(unresolvedCalldata, makeCtx());
 
     expect(output.rawBytes).toBeInstanceOf(Uint8Array);
@@ -404,7 +404,7 @@ describe('the provenance ladder and the unresolved selector (ETH-05, ETH-06, NET
 
     expect(core.resolve(MINT_FROM_MOLOCH_CALLDATA).decoderId).toBe('eth-calldata');
 
-    const unresolvedCalldata = '0xdeadbeef' + '0'.repeat(64);
+    const unresolvedCalldata = `0xdeadbeef${'0'.repeat(64)}`;
     expect(core.resolve(unresolvedCalldata).decoderId).toBe('abi-words');
 
     const pullSelector = keccak().selector('pull()');
@@ -446,7 +446,7 @@ describe('ethCanDecode — the auto-detect curve (D-27, Task 0 option A)', () =>
     expect(decoder().canDecode('not hex at all')).toBe(0);
     expect(decoder().canDecode('')).toBe(0);
     expect(decoder().canDecode('0x1234')).toBe(0); // 2 bytes — too short for even a selector-only shape... actually 2 bytes
-    expect(decoder().canDecode('0x' + '00'.repeat(5))).toBe(0); // 5 bytes: not 4 + 32k
+    expect(decoder().canDecode(`0x${'00'.repeat(5)}`)).toBe(0); // 5 bytes: not 4 + 32k
   });
 
   it('scores strictly higher than abi-words when the selector resolves locally, and between hex and abi-words when it does not', () => {
@@ -454,7 +454,7 @@ describe('ethCanDecode — the auto-detect curve (D-27, Task 0 option A)', () =>
     const abiWordsResolvedScore = otherDecoder('abi-words').canDecode(MINT_FROM_MOLOCH_CALLDATA);
     expect(resolvedScore).toBeGreaterThan(abiWordsResolvedScore);
 
-    const unresolvedCalldata = '0xdeadbeef' + '0'.repeat(64);
+    const unresolvedCalldata = `0xdeadbeef${'0'.repeat(64)}`;
     const shapedScore = decoder().canDecode(unresolvedCalldata);
     const abiWordsShapedScore = otherDecoder('abi-words').canDecode(unresolvedCalldata);
     const hexShapedScore = otherDecoder('hex').canDecode(unresolvedCalldata);
