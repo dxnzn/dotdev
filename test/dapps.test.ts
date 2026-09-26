@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -131,5 +131,37 @@ describe('cic dapp — manifest dependencies', () => {
 
   it('calls window.CIC.init with container and isReport', () => {
     expect(src).toContain('window.CIC.init');
+  });
+});
+
+// A source comment may cite a sibling checkout — ../dxkit is the whole point of `make vendor` — but
+// never by the absolute path it happens to sit at on one machine. That path names the directory
+// above this repo, which is the one thing a tracked file must not carry: every reference is written
+// unqualified so the same tree works wherever it is checked out.
+describe('tracked sources cite a sibling checkout relatively, never by absolute path', () => {
+  const ROOT = resolve(__dirname, '..');
+  const SIBLINGS = ['dxkit', 'shared', 'planning'];
+
+  function listSources(dir: string): string[] {
+    const out: string[] = [];
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === 'node_modules' || entry.name === 'vendor' || entry.name.startsWith('.')) continue;
+      const full = resolve(dir, entry.name);
+      if (entry.isDirectory()) out.push(...listSources(full));
+      else if (/\.(ts|css|html|json|md)$/.test(entry.name) && !entry.name.endsWith('.d.ts')) out.push(full);
+    }
+    return out;
+  }
+
+  it('no tracked source names a sibling checkout by an absolute filesystem path', () => {
+    const pattern = new RegExp(`(^|[\\s(\\['"\`])/[\\w.-]+/(${SIBLINGS.join('|')})/`);
+    const offenders: string[] = [];
+    for (const file of [...listSources(resolve(ROOT, 'src')), ...listSources(resolve(ROOT, 'test'))]) {
+      const lines = readFileSync(file, 'utf-8').split('\n');
+      for (const [i, line] of lines.entries()) {
+        if (pattern.test(line)) offenders.push(`${file.slice(ROOT.length + 1)}:${i + 1}`);
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });

@@ -1313,7 +1313,7 @@ describe('shell-wallet — Connect from the dropdown (WAL-02)', () => {
     // The first attempt answers now, after the second is already outstanding. Its finally must
     // release nothing: the guard it would clear belongs to a request still in flight, and
     // re-opening the control here lets a third connect() tear down the listener the second
-    // one's approval arrives on (/dnznlabs/dxkit/plugins/wallet/src/index.ts:300-305).
+    // one's approval arrives on (../dxkit/plugins/wallet/src/index.ts:300-305).
     first.resolve(undefined);
     await flushMicrotasks();
 

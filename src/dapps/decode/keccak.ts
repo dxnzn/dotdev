@@ -1,5 +1,5 @@
 // window.DxDecode.keccak — this chain's keccak-256, ported (D-16) essentially verbatim from
-// /dnznlabs/dxkit/plugins/web3/src/keccak.ts rather than rewritten. Loads second, right after
+// ../dxkit/plugins/web3/src/keccak.ts rather than rewritten. Loads second, right after
 // codecs.ts and before abi.ts (manifest.json), because abi.ts reads window.DxDecode.keccak at
 // module load to derive selectors.
 //

@@ -37,7 +37,7 @@ const NET_MAX_CONCURRENCY = 4;
 
 // T-05-14: a hostile or runaway response body is refused mid-stream, before it is ever fully
 // buffered — copying the DxKit provider's own bounded-reader technique
-// (/dnznlabs/dxkit/plugins/web3/src/provider.ts, D-13). 64 KB comfortably covers every JSON
+// (../dxkit/plugins/web3/src/provider.ts, D-13). 64 KB comfortably covers every JSON
 // response this phase's own hosts (OpenChain, 4byte) return for a single-selector lookup.
 const NET_BODY_LIMIT_BYTES = 65536;
 

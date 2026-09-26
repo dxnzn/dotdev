@@ -308,7 +308,7 @@
   // flight when the FIRST one finally settles: an ungated release would then clear the newer
   // request's flag and cancel its watchdog, leaving it unbounded. A third connect() would tear
   // down the listener the second one's approval arrives on
-  // (/dnznlabs/dxkit/plugins/wallet/src/index.ts:300-305), so the person approves in their
+  // (../dxkit/plugins/wallet/src/index.ts:300-305), so the person approves in their
   // wallet, updateState reaches no subscriber, and the header sits on CONNECT_WAITING until a
   // reload. Only the current owner releases; the explicit close and cleanup paths are not
   // attempt-scoped by design, because they release whatever is current on purpose.
@@ -353,7 +353,7 @@
   // The one bounded single-flight connect, reached from the explicit Connect click and from
   // D-08's lazy re-arm below — two gestures, one call. eth_requestAccounts is single-flight per
   // origin, and worse here: the plugin tears the previous provider down before it starts
-  // (/dnznlabs/dxkit/plugins/wallet/src/index.ts:300-305), so a second request during an
+  // (../dxkit/plugins/wallet/src/index.ts:300-305), so a second request during an
   // in-flight first one both rejects -32002 and unsubscribes the listeners the first one is
   // about to need (T-02-24).
   //
@@ -439,7 +439,7 @@
   // slow wallet is the wallet's problem and not the page's.
   //
   // Upstream awaits the EIP-2255 permission-revocation RPC *before* it tears the provider down
-  // (/dnznlabs/dxkit/plugins/wallet/src/index.ts:330), and either await can stay pending — the
+  // (../dxkit/plugins/wallet/src/index.ts:330), and either await can stay pending — the
   // same unanswered-prompt shape startConnect bounds. Clear-then-await would leave the identity
   // cache already deleted while the connected chip stayed on screen: a visibly hung Disconnect,
   // with the person's data gone and the UI claiming the opposite (T-02-36).
@@ -555,7 +555,7 @@
 
     // `disconnected` is deliberately inert, and it is the rule the whole plan turns on. The
     // adapter maps an empty accountsChanged to connected:false unconditionally
-    // (/dnznlabs/dxkit/plugins/wallet/src/index.ts:56-68), and MetaMask fires that same handler
+    // (../dxkit/plugins/wallet/src/index.ts:56-68), and MetaMask fires that same handler
     // when the wallet merely locks, so the event is ambiguous between lock and revoke.
     // Treating it as a disconnect would wipe the identity on every auto-lock (T-02-20). The
     // in-memory identity is cleared by the Disconnect click and by nothing else — there is no

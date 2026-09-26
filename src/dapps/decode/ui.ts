@@ -1148,9 +1148,16 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // sender composed the link, not the recipient, and cannot be expected to read a query
   // parameter and understand what it costs. Consent is the recipient's own prior act: the
   // 'autoRunSharedLinks' setting (src/plugins/links.ts), off by default. Read fresh on every
-  // applyQuery call (never cached) so a setting flipped in another tab while this one sits on an
-  // already-loaded link takes effect the next time a link is applied, matching how every other
-  // settings read in this file behaves. Deliberately uniform across every decoder — a network-
+  // applyQuery call (never cached), so a flip made in THIS tab — the settings dapp, or anything
+  // else that goes through dx.settings.set — takes effect on the next link without a reload,
+  // matching how every other settings read in this file behaves. It does NOT reach a flip made in
+  // another tab: the settings plugin reads localStorage at init and never listens for the browser's
+  // `storage` event, and this repo's own reconciliation (src/dapps/settings/sync.ts) is loaded as a
+  // settings-dapp dependency, so it is not attached while decode is the mounted dapp. A tab sitting
+  // on decode therefore keeps the consent it last read until it is reloaded or Settings is visited.
+  // The gap is upstream and written up in tmp/dxkit-fr-settings-cross-tab-sync.md; the same limit
+  // applies to every credential read in this directory, and none of them may claim otherwise.
+  // Deliberately uniform across every decoder — a network-
   // capable decoder is not special-cased — because the ratified rule is "the recipient already
   // agreed to this, for every decoder", not "this one decoder gets a lesser version of consent".
   function shouldAutoRunSharedLink(q: DecodeQueryParams | undefined): boolean {
@@ -1284,7 +1291,8 @@ function createShellSettingsPort(dx: unknown): SettingsPort {
 // SETTINGS PORT, never over a chain id — createDecodeService captures this port once in its
 // closure (init(), above) and reuses it for every decode, so a LinkPort built from a chain id
 // read once at mount would keep pointing at the old chain's explorer after the person changes
-// it, and Phase 1's cross-tab settings sync makes that an ordinary event, not a corner case.
+// it, and a chain change from the settings dapp in THIS tab is an ordinary event, not a corner case
+// (a change made in another tab does not reach this one — see shouldAutoRunSharedLink's note).
 // Reading settings.get('chainId') INSIDE each member, at call time, is what fixes it — do not
 // "simplify" this back to core.createExplorerLinks(settings.get('chainId')) at the call site;
 // that reintroduces the exact staleness this closure exists to prevent (05-04 review, HIGH).
