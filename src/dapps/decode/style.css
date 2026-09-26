@@ -168,16 +168,12 @@
    gone too, folded directly into .decode-share-z-btn below, since one button no longer needs a
    name distinct from its own selector. */
 .decode-share-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.decode-share-z-btn {
-  background: none; border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 0.35rem 0.7rem; font-family: inherit; font-size: 0.78rem; color: var(--text);
-  cursor: pointer; transition: all 0.15s;
-}
-.decode-share-z-btn:hover { color: var(--accent); border-color: var(--accent); }
-/* G-06-9: pressed state, mirroring :hover's own accent border/colour pair — decode-share-z-btn
-   is the last button in this file with its own styling, so leaving it dead on click while every
-   other control on the page flashes would be an odd end state for a plan about press feedback. */
-.decode-share-z-btn:active { color: var(--accent); border-color: var(--accent); }
+/* Sizing, hover and the pressed state all come from components.css's .copy-btn, the same way the
+   three Log controls take theirs (see the note below) — AGENTS.md: a dapp stylesheet overrides
+   LAYOUT only. The margin reset is that layout override, a descendant selector for the same reason
+   the Log one is, and .decode-copied is this panel's own post-copy confirmation, which the shared
+   component has no equivalent of. */
+.decode-share-row .copy-btn { margin-top: 0; }
 .decode-share-z-btn.decode-copied { color: var(--accent); border-color: var(--accent); }
 .decode-share-z-btn.decode-copied::after { content: 'Copied'; margin-left: 0.4em; font-size: 0.7rem; }
 .decode-share-size { font-size: 0.72rem; color: var(--text-muted); }

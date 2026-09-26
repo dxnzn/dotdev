@@ -622,6 +622,27 @@ describe('the generic DecodeNode tree renderer (Task 1)', () => {
     cleanup();
   });
 
+  // AGENTS.md: a button takes its sizing and its pressed state from components.css, and a dapp
+  // stylesheet overrides layout only. This was the last button in the dapp still styling itself.
+  it('the compressed-share button carries .copy-btn, and style.css no longer sizes it', () => {
+    const template = loadTemplate();
+    const tag = findOpeningTagById(template, 'decode-share-z-btn');
+    expect(/\bclass="[^"]*\bcopy-btn\b[^"]*"/.test(tag)).toBe(true);
+
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    // ::after styles the generated 'Copied' label, not the control — excluded deliberately.
+    const own = rules.filter((r) => r.selector.includes('decode-share-z-btn') && !r.selector.includes('::'));
+    expect(own.length).toBeGreaterThan(0);
+    for (const rule of own) {
+      for (const property of ['padding', 'font-size', 'background', 'cursor', 'border']) {
+        expect(readCssDeclaration(rule.block, property)).toBeUndefined();
+      }
+      // Sizing aside, the local rules may only describe this panel's own post-copy state.
+      expect(rule.selector).toContain('.decode-copied');
+    }
+  });
+
   it('style.css defines no selector already present in src/styles/components.css', () => {
     const decodeCss = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
     const sharedCss = readFileSync(resolve(__dirname, '../src/styles/components.css'), 'utf-8');
