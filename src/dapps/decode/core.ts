@@ -138,7 +138,7 @@ function findOwnRoute(dx: unknown): string | null {
 // decoder becomes a returned error node rather than a rejected promise — DecodeService itself
 // never rejects.
 function createDecodeService(options: DecodeServiceOptions): DecodeService {
-  const { registry, settings, log, links } = options;
+  const { registry, settings, log, links, transport, abis, signatures, target, settingsRoute } = options;
 
   return {
     async decode(decoderId, input, runOptions) {
@@ -176,6 +176,15 @@ function createDecodeService(options: DecodeServiceOptions): DecodeService {
         log,
         signal: signal ?? new AbortController().signal,
         links,
+        // Phase 5 Task 0 (CONTEXT.md D-06): passthrough only — no type change here. All five
+        // are optional on both DecodeServiceOptions and DecodeContext, so every caller that
+        // builds a bare options object (every Phase 3/4 test, and this file's own createNull-
+        // SettingsPort-backed wiring today) stays exactly as it was.
+        transport,
+        abis,
+        signatures,
+        target,
+        settingsRoute,
       };
 
       let output: DecodeOutput;
@@ -364,6 +373,27 @@ function parseDecodeQuery(path: string): DecodeQueryParams {
   if (data !== null) result.data = data;
   const z = params.get('z');
   if (z !== null) result.z = z;
+
+  // DEC-04: `calldata=<payload>` is an alias implying decoder 'eth-calldata', resolved before
+  // auto-detect ever runs. One principle, stated once, gives both precedence rules below: an
+  // EXPLICIT parameter always beats an IMPLIED one.
+  //   1. `decoder` beats the alias's implication — `?calldata=..&decoder=hex` still yields hex.
+  //   2. `data` beats `calldata` as the payload source — `data` is the parameter buildShareUrl
+  //      itself writes and every existing share link carries, so a link carrying both is far
+  //      more likely to be a share link with a hand-appended alias than the reverse.
+  // An empty `calldata=` still supplies `data: ''` and still implies the decoder — the user
+  // asked for eth-calldata, and an empty payload does not retract that.
+  //
+  // 'eth-calldata' is the ONE decoder id this framework file ever names as a literal (DEC-04
+  // requires it — the alias implies that specific decoder and nothing else can express the
+  // implication). Every other branch in this file is decoder-agnostic by design; this is a
+  // deliberate, singular exception, not licence for a second one.
+  const calldata = params.get('calldata');
+  if (calldata !== null) {
+    if (result.decoder === undefined) result.decoder = 'eth-calldata';
+    if (result.data === undefined) result.data = calldata;
+  }
+
   return result;
 }
 

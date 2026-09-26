@@ -44,7 +44,9 @@ describe('ethereum plugin', () => {
       expect(byKey.etherscanApiKey.default).toBe('');
       expect(byKey.rpcUrl.default).toBe('');
       expect(byKey.chainId.default).toBe(1);
-      expect(byKey.etherscanRps.default).toBe(5);
+      // D-12: Etherscan's free tier is 3 requests/second, not 5 — corrected here so the visible
+      // setting matches the rate the transport's bucket actually enforces (05-03).
+      expect(byKey.etherscanRps.default).toBe(3);
     });
 
     it('sets etherscanRps validation bounds to 1..5', () => {
@@ -57,6 +59,15 @@ describe('ethereum plugin', () => {
       for (const def of plugin.settings) {
         expect(def.validation?.required).not.toBe(true);
       }
+    });
+
+    // 05-03 Task 3: the rpcUrl field warns up front that the endpoint must allow browser
+    // requests (D-09) — src/dapps/settings/fields.ts already renders def.description as a hint
+    // beneath the field, so this asserts the schema entry rather than adding a new mechanism.
+    it('rpcUrl carries a description stating the endpoint must allow browser requests', () => {
+      const byKey = Object.fromEntries(plugin.settings.map((s: any) => [s.key, s]));
+      expect(typeof byKey.rpcUrl.description).toBe('string');
+      expect(byKey.rpcUrl.description.toLowerCase()).toContain('browser');
     });
   });
 

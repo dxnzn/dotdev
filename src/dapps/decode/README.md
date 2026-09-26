@@ -20,6 +20,17 @@ vendored DxKit itself; `DxDecode` is this dapp's own, chosen because a dapp mean
 into another DxKit shell must not carry this org's name (`Dnzn*`) in its global. A reader who
 assumes `Dx*` always means "look in the framework" will look for `DxDecode` in the wrong place.
 
+Phase 5 added four sub-keys alongside `core`/`codecs`/`registry`/`log`:
+
+- `window.DxDecode.keccak` — keccak-256 over `Uint8Array`, and the selector/canonical-signature
+  helpers built on it.
+- `window.DxDecode.abi` — the head/tail ABI decoder and the signature-string parser (canonical
+  and JSON-ABI front doors), covering every ABI type at every nesting depth.
+- `window.DxDecode.transport` — `createTransport(options)`, the sole `fetch`-bearing factory in
+  this directory; see § Privacy below for what the portability guard enforces about it.
+- `window.DxDecode.signatures` — the local signature table plus the OpenChain/4byte registry
+  adapters and the resolver that keccak-verifies a candidate before trusting it.
+
 ## Adding a decoder
 
 Registering a decoder and getting it to compile and load costs three touchpoints, no more. A
@@ -91,6 +102,13 @@ the whole argument for `core.ts`'s registry and this directory's file split (D-0
 decoder needing a shared helper or a test suite of its own pays for those separately, as plan
 04-01's `base64` decoder did.
 
+A decoder may also declare credential-backed settings (`settings: ['etherscanApiKey', ...]`,
+bare keys resolved through the real `SettingsPort` — see § Host-shell contract) and reach a
+signature registry through `ctx.signatures` (`SignatureLookupPort`, optional on `DecodeContext`).
+It must degrade rather than fail when a credential or `ctx.signatures` is absent — `eth-calldata`
+is the worked example: with no transport wired it still resolves against its local table and
+renders `UNRESOLVED` rather than throwing when nothing local matches.
+
 ## Host-shell contract
 
 This directory is portable into any DxKit shell that satisfies two things:
@@ -109,6 +127,17 @@ This directory is portable into any DxKit shell that satisfies two things:
   - `.btn-group` — the Decode/Clear actions
   - `.tabs`, `.tab-content` — the Result/Raw/Log tab strip
   - `.results-area` — the right-hand column wrapper
+
+`DecodeContext` also carries three **optional** ports a host may supply, each of which a decoder
+must treat as absent-capable rather than assumed:
+
+- `transport?: TransportPort` — a rate-limited, deduplicated, retried network primitive. This
+  dapp's own `init()` constructs one from `window.DxDecode.transport` when that module loaded;
+  a host that omits the module (or a decoder used standalone) sees `ctx.transport` as `undefined`.
+- `abis?: AbiSourcePort` — a verified-ABI lookup by target address. Not supplied by this dapp's
+  own composition root this phase (no adapter exists until Phase 6's Etherscan integration).
+- `signatures?: SignatureLookupPort` — the 4-byte-selector-to-signature resolver, backed here by
+  `window.DxDecode.signatures`'s registry adapters when a transport is also present.
 
 ## Share links
 
@@ -133,68 +162,123 @@ offered and then failing. When a link carries both the plain and the compressed 
 compressed one wins; a compressed payload that will not inflate renders as a readable error in
 the result tree, with the original value left visible in the input field.
 
+A third form, `calldata=<payload>`, is an alias for `data` that also implies
+`decoder=eth-calldata` — the form a link generator (or a person) reaches for when it already
+knows the payload is Ethereum calldata and does not want to name the decoder explicitly:
+
+```
+#/tools/decode/?calldata=0xabcd
+```
+
+Two precedence rules, both following the same principle — an explicit parameter always beats an
+implied one: an explicit `decoder` parameter wins over the alias's own implication, and an
+explicit `data` parameter wins over `calldata` as the payload source (while the alias's decoder
+implication still stands, since nothing contradicted it).
+
 ## Privacy
 
-No bare reference to a network or storage API appears in this directory's source (source scan),
-and the mounted dapp performs no network, storage or history write before Copy link is pressed
-(runtime test) — both enforced by `test/decode-portability.test.ts` and `test/decode-url.test.ts`,
-not merely asserted here. Every decoder this dapp ships — `hex`, `base64`, `url`, `jwt` and
-`abi-words` — decodes entirely on-device; none of them reaches the network, which is exactly what
-the portability guard's source scan certifies for every file in this directory, not only the first
-one. The Log tab's empty state states this directly; a future decoder that does reach out will list
-every request there, with credentials redacted.
+Phase 5 gave `eth-calldata` a real network path (registry lookups), so the claim this section
+makes narrowed on purpose — from "nothing in this directory can reach the network" to what the
+guard and the test suite actually enforce, in both directions:
+
+- **Enforced by the source scan** (`test/decode-portability.test.ts`): exactly one file,
+  `transport.ts`, may invoke the network primitive, and every invocation of it in that file sits
+  inside `netRequest`, the one function that writes the log entry. Exactly one helper,
+  `uiCreateExternalLink`, may construct a link (`href`). Both exemptions are asserted to have
+  exactly one entry, and each has a synthetic failing-direction test proving the call site outside
+  its permitted function IS caught.
+- **Enforced by behavioural tests**: every completed request attempt is recorded as its own log
+  entry with its attempt number; the api key and any `Authorization` header are redacted **before**
+  the entry is stored, so they are absent from the stored object, from Copy as JSON and from Copy
+  as cURL; nothing in the directory reaches a persistent-storage API.
+
+This section does **not** claim a request is logged *before* it is issued — `LogPort`
+(`types.d.ts`) is append-and-clear (`record`/`subscribe`/`clear`, no start/update lifecycle), and a
+completed log entry carries a status, a duration and a response body, none of which exist before
+the request returns. The source scan cannot establish that timing either; it matches call sites,
+not control flow. The honest claim is that every *completed* attempt is recorded, and that is
+what this section says.
+
+The five decoders that ship with no network path at all — `hex`, `base64`, `url`, `jwt` and
+`abi-words` — still decode entirely on-device, unaffected by any of the above; `eth-calldata` is
+the one exception, and only through the one file and one function named. The Log tab lists every
+request `transport.ts` makes, with credentials already redacted.
 
 ## Size
 
 Measured with the command Phase 3 established — `npx tsup && wc -c src/dapps/decode/*.js` — run
-fresh rather than read from this document, whose own figure had already gone stale once before
-this phase began.
+fresh rather than read from this document, whose own figure had already gone stale twice already
+before this phase began (see the two superseded snapshots this section used to carry).
 
-**Phase 3 baseline**, re-measured before this phase's first edit (`04-01-SUMMARY.md`) — this
-corrects the figure this section previously stated, which was itself already stale by the time
-it was written:
-
-| Module | Bytes |
-|---|---|
-| `codecs.js` | 3,957 |
-| `core.js` | 7,624 |
-| `dapp.js` | 1,084 |
-| `decoders.js` | 1,863 |
-| `ui.js` | 18,979 |
-| **Total** | **33,507** |
-
-**After Phase 4** — four new decoder modules, plus growth in the framework modules this phase's
-new decoders needed (`core.ts` gained `jsonToNode`/`jsonToRaw`/`formatUtcDate`, `codecs.ts` gained
-`Percent`/`Base64.splitSegments`, `ui.ts` gained `renderWordTable`). Measured after the phase's
-code-review fixes, not before them — the figures this section first carried were written mid-phase
-and were stale within the day:
+**Phase 5 measurement**, taken from a fresh build after this phase's own commits landed — every
+compiled module in the directory, the pattern rather than a fixed roster, so this table needs no
+edit the next time a decoder is added or removed:
 
 | Module | Bytes |
 |---|---|
+| `abi.js` | 16,606 |
 | `codecs.js` | 4,342 |
-| `core.js` | 9,283 |
+| `core.js` | 9,979 |
 | `dapp.js` | 1,084 |
+| `decoders-abi-words.js` | 5,436 |
+| `decoders-base64.js` | 2,895 |
+| `decoders-eth-calldata.js` | 9,429 |
 | `decoders.js` (hex) | 1,863 |
 | `decoders-jwt.js` | 4,207 |
-| `decoders-abi-words.js` | 5,384 |
 | `decoders-url.js` | 4,713 |
-| `decoders-base64.js` | 2,895 |
-| `ui.js` | 20,291 |
-| **Total** | **54,062** |
+| `keccak.js` | 4,585 |
+| `signatures.js` | 4,553 |
+| `transport.js` | 12,418 |
+| `ui.js` | 28,287 |
+| **Total** | **110,397** |
 
-**Phase 4 delta: +20,555 bytes** (54,062 − 33,507).
+**Three numbers, three baselines, per D-02** — never a figure carried forward from a previous
+document, always the same fresh build:
 
-**Cross-check.** Subtracting only the four new decoder modules from the current total
-(54,062 − 17,199 = 36,863) does **not** reproduce the 33,507 baseline above — this phase also grew
-`core.js`, `codecs.js` and `ui.js` by a combined 3,356 bytes (1,659 + 385 + 1,312), and
-36,863 − 33,507 = 3,356 exactly. The figure `04-01-SUMMARY.md` recorded before this phase's first
-edit, not this subtraction, is the baseline the delta above is computed against.
+| Mode | This phase | Pre-phase baseline | Delta |
+|---|---|---|---|
+| Uncompressed | **110,397 bytes** | 54,062 bytes (`04-05-SUMMARY.md`, post-review) | **+56,335 bytes** |
+| Gzipped | **27,061 bytes** | 10,584 bytes | **+16,477 bytes** |
+| Minified | **66,855 bytes** | none recorded | not applicable |
 
-**Headroom.** Against the DEC-16 ceiling of under 60,000 bytes uncompressed, Phase 4 consumed
-roughly 78% of the ~26,493 bytes of headroom that remained after Phase 3 (20,555 of 26,493 bytes),
-leaving **~5,938 bytes (~5.9 KB)** before the ceiling. Phase 5's keccak-256 plus the full ABI codec
-plus the network transport is the largest single increment still expected against this same
-budget.
+- **Uncompressed**, measured with the command above. 54,062 — not 52,744 — is the correct
+  pre-phase baseline: 52,744 was `04-05-SUMMARY.md`'s measurement taken *before* the post-review
+  commits `7cb9331`, `cc9f265` and `1c0c19e` landed, and using it would understate this phase's
+  delta by 1,318 bytes.
+- **Gzipped**, measured as `cat src/dapps/decode/*.js | gzip -9 | wc -c` over the same fresh
+  build — the actual served bytes, gzipped, since this toolchain has no minify step and `src/` is
+  what a server compresses on the wire. **This is a methodology change from the 10,584-byte
+  pre-phase figure**, which was gzip of a one-off *minified* rebuild rather than of the served
+  output itself (gzip of this phase's own minified rebuild, below, is 20,803 bytes — closer to
+  10,584's ratio of raw). The +16,477 delta above is reported because D-02 asks for one against
+  the recorded baseline, but the two figures are not a clean apples-to-apples subtraction; the
+  128,000/32,000-byte budget approved for this phase (below) was set against *this* phase's own
+  gzip-of-served-output methodology, which this document adopts going forward as the more honest
+  measure of real transfer cost — no minify step exists, so gzip of the served tree is what a
+  visitor's browser actually receives.
+- **Minified**, produced ad hoc for this report only — there is no minify step in the toolchain
+  (`tsup.config.ts`: `bundle: false`, `outDir: 'src'`) and this phase does not add one. Reproduce
+  with `for f in src/dapps/decode/*.js; do npx esbuild --minify "$f"; done | wc -c` — `esbuild`
+  already ships as a `tsup` dependency, so this adds nothing to `package.json`, and stdout means
+  no artifact ever lands in `src/`, the tree that is actually served. **No pre-phase minified
+  baseline was ever recorded** (D-01 recorded a gzip figure derived from a minified build but
+  never the minified total itself), so this number is reported as an absolute, context for the
+  pair, and is not itself a gate.
+
+**The largest contributors to this phase's increment**, by name, since the ROADMAP's own size
+checkpoint asks for them: the full ABI codec (`abi.js`, 16,606 bytes), the sole-fetch-bearing
+transport (`transport.js`, 12,418 bytes), the `eth-calldata` decoder (`decoders-eth-calldata.js`,
+9,429 bytes), keccak-256 (`keccak.js`, 4,585 bytes), the registry adapters
+(`signatures.js`, 4,553 bytes), and the Log tab / link / settings growth inside `ui.js` (+7,996
+bytes over its Phase 4 size).
+
+**Headroom, against the pair this phase's checkpoint approved: `< 128 KB uncompressed` and
+`< 32 KB gzipped`.** DEC-16's original, now-superseded single `< 60 KB uncompressed` ceiling did
+not survive this phase — see `.planning/REQUIREMENTS.md`'s DEC-16 line for the full reasoning,
+stated once there and referenced rather than repeated here. Against the approved pair: **17,603 bytes
+(~17.6 KB) of uncompressed headroom** (128,000 − 110,397) and **4,939 bytes (~4.9 KB) of gzipped
+headroom** (32,000 − 27,061) remain before Phase 6's Etherscan ABI adapter and proxy follower.
+Gzip is the tighter of the two margins and is the figure that matters for real transfer cost.
 
 This is a **reported running total, confirmed against the full catalogue at the close of Phase 6 —
 not a threshold enforced by any test.**

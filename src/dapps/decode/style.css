@@ -52,6 +52,11 @@
 .decode-tree-warning { color: var(--amber); }
 .decode-tree-annotation { color: var(--text-muted); font-size: 0.78rem; font-style: italic; }
 
+/* ETH-10: a small trailing affordance beside the value button — never inside it (an anchor
+   nested in a <button> is invalid HTML with undefined activation behaviour, D-30). */
+.decode-tree-link { color: var(--text-dim); text-decoration: none; font-size: 0.9em; }
+.decode-tree-link:hover { color: var(--accent); text-decoration: underline; }
+
 .decode-provenance-badge {
   font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.04em;
   padding: 0.05rem 0.4rem; border: 1px solid var(--border); border-radius: var(--radius);
@@ -112,11 +117,23 @@
 .decode-wordtable-word { color: var(--text); white-space: normal; overflow-wrap: anywhere; }
 
 /* Log — the live entry table (D-17, D-18) */
-.decode-log-controls { display: flex; justify-content: flex-end; margin-bottom: 0.6rem; }
+.decode-log-controls { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.6rem; }
 .decode-log-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; }
 .decode-log-table th, .decode-log-table td {
   text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border);
 }
 .decode-log-table th { color: var(--text-muted); font-weight: 500; text-transform: uppercase; font-size: 0.68rem; }
+
+/* Log — the expandable row (NET-06), matching renderNode's own disclosure look */
+.decode-log-disclosure {
+  background: none; border: none; padding: 0; width: 1.1em; color: var(--text-dim);
+  font-family: inherit; font-size: inherit; cursor: pointer;
+}
+.decode-log-disclosure:hover { color: var(--accent); }
+.decode-log-detail-row[hidden] { display: none; }
+.decode-log-detail { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.4rem 0.6rem; }
+.decode-log-detail-field { display: flex; gap: 0.6rem; align-items: baseline; }
+.decode-log-detail-label { color: var(--text-muted); min-width: 6.5rem; flex-shrink: 0; }
+.decode-log-detail-value { color: var(--text); word-break: break-all; }
 
 .decode-empty-message { color: var(--text-muted); font-size: 0.84rem; }

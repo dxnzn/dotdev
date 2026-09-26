@@ -42,10 +42,18 @@ the tree is deployed to GitHub Pages and is servable from IPFS unchanged. See
   file per decoder**, each self-registering per the directory's own README "add a decoder"
   walkthrough: `decoders.ts` (hex), `decoders-base64.ts`, `decoders-url.ts`, `decoders-jwt.ts`
   and `decoders-abi-words.ts`, with a new decoder arriving as a new sibling rather than growing
-  an existing file. Built to be portable into any DxKit shell (`requires.plugins: ["settings"]`,
-  `standalone: false`, no `Dnzn*`-prefixed identifier anywhere in the directory) and a source-
-  scanning guard (`test/decode-portability.test.ts`) enforces that posture on every change. See
-  `src/dapps/decode/README.md`.
+  an existing file. Phase 5 added five more modules by the same pattern: `keccak.ts`
+  (keccak-256, no dependencies), `abi.ts` (the head/tail ABI decoder and signature-string
+  parser), `signatures.ts` (the local signature table plus the OpenChain/4byte registry
+  adapters), `decoders-eth-calldata.ts` (the Ethereum calldata decoder composing the three
+  above), and `transport.ts` — **the only file in this directory that may invoke `fetch`**,
+  because the portability guard's source scan permits exactly one named exemption and asserts
+  every call site inside it sits inside `netRequest`, the one function that also writes the log
+  entry; every other file, including the four other Phase 5 additions, is still forbidden the
+  network primitive outright. Built to be portable into any DxKit shell
+  (`requires.plugins: ["settings"]`, `standalone: false`, no `Dnzn*`-prefixed identifier anywhere
+  in the directory) and a source-scanning guard (`test/decode-portability.test.ts`) enforces that
+  posture on every change. See `src/dapps/decode/README.md`.
 - `src/plugins/` — dotdev-local DxKit plugin factories (`ethereum.ts`), registered
   in `src/main.ts` and loaded by their own `<script>` tag in `src/index.html` before
   `main.js` — a plugin factory has to exist at shell-construction time and there is no
@@ -89,7 +97,11 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   future multi-module dapp should follow. Phase 4 is that pattern's first real proof: it added
   four new decoder modules to the directory and none needed an ignore-file change, the glob
   already covering every non-entry module in the directory rather than a named or counted set of
-  them. Two literal per-file lines also exist today for top-level modules, `src/wallet-identity.js`
+  them. Phase 5 is the second proof and the stronger one: it added five more modules
+  (`keccak.ts`, `abi.ts`, `signatures.ts`, `transport.ts`, `decoders-eth-calldata.ts`), again with
+  no `.gitignore` change, confirming the glob covers every non-entry module in the directory
+  rather than a set fixed at whatever count existed when the glob was written. Two literal
+  per-file lines also exist today for top-level modules, `src/wallet-identity.js`
   and `src/shell-wallet.js`.
 - **No runtime dependencies and no CDN scripts.** Anything needed is implemented
   in-repo; the IPFS-servable, no-build-at-runtime posture depends on it.
@@ -132,3 +144,13 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   `getComputedStyle` once and memoises them, so a theme change must invalidate
   that cache or the chart keeps painting the old palette.
 - **`BUILD_VERSION` auto-increments** on `make dist` / `make dist-history-stubs`.
+- **The decode portability guard (`test/decode-portability.test.ts`) has exactly two named
+  exemptions, each file-and-function scoped, not directory-wide.** `fetch` is permitted only in
+  `src/dapps/decode/transport.ts`, and only inside `netRequest`, the one function that also
+  writes the log entry; `href` is permitted only inside `ui.ts`'s `uiCreateExternalLink`. A future
+  decoder that needs to reach the network or construct a link cannot add its own call site — it
+  must route through `transport.ts`'s `createTransport()` or `ui.ts`'s existing link helper. Both
+  exemptions are asserted to have exactly one entry, so adding a second exempt file or helper
+  requires deliberately widening the allowlist, not just writing the code — the guard's failure
+  message alone (a plain "unlisted global" or network-identifier violation) won't explain this
+  design; this note is the explanation.

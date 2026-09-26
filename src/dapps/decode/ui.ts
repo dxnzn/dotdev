@@ -35,18 +35,27 @@ function underlyingText(node: DecodeNode): string | undefined {
 // it fully strips.
 type DisplayMode = NonNullable<DecodeNode['display']>;
 type ProvenanceMode = NonNullable<DecodeNode['provenance']>;
+type LinkKind = NonNullable<DecodeNode['linkKind']>;
 
 // The declared display union, restated here only as a Record's key set — TypeScript already
 // fails this file to compile if an entry is missing or an extra one is added, and the
 // exhaustiveness test compares this table's runtime key set against the union's seven members
 // so a mode added to types.d.ts in a later phase fails here rather than silently falling
-// through to the default. Every entry today renders the same underlying text: none of this
-// phase's decoders shorten a value for display, so display text and copy text coincide. Phase
-// 5 decorates `address`/`txhash` with a link — it changes what these functions RETURN, never
-// the table's shape (the whole point of <renderer_completeness_decision>).
+// through to the default. Five of the seven entries still render the same underlying text —
+// none of THOSE decoders shorten a value for display, so display text and copy text coincide.
+//
+// 05-06 CORRECTION of an earlier forecast recorded here: this comment used to predict that
+// ETH-10 would change what address/txhash's own functions RETURN. It turned out cheaper not
+// to — the link travels on `DecodeNode.link`/`linkKind` and is drawn by `renderNode` as a
+// sibling anchor beside the value button, never returned by a dispatch entry. What DID change
+// for these two entries is which of the node's own two text fields they read: `value` now
+// carries the decoder's SHORTENED form (`ethShortenValue`, decoders-eth-calldata.ts) while
+// `raw` keeps the full one `underlyingText` — and therefore `copyValue` and
+// `applyFullValueTitle` — always reads. The table's shape, its string-returning signature and
+// its seven entries are exactly what they were (<renderer_completeness_decision>).
 const DISPLAY_DISPATCH: Record<DisplayMode, (node: DecodeNode) => string | null> = {
-  address: (node) => underlyingText(node) ?? null,
-  txhash: (node) => underlyingText(node) ?? null,
+  address: (node) => (typeof node.value === 'string' ? node.value : (underlyingText(node) ?? null)),
+  txhash: (node) => (typeof node.value === 'string' ? node.value : (underlyingText(node) ?? null)),
   hex: (node) => underlyingText(node) ?? null,
   int: (node) => underlyingText(node) ?? null,
   text: (node) => underlyingText(node) ?? null,
@@ -68,6 +77,16 @@ const PROVENANCE_LABELS: Record<ProvenanceMode, string> = {
   registry: 'Registry',
   unresolved: 'Unresolved',
   local: 'Local',
+};
+
+// ETH-10: a generic, per-KIND glyph — never decoder- or field-specific wording. `link`/
+// `linkKind` are the SAME two members Phase 6's proxy and transaction links will attach to
+// (05-01's own note beside DecodeNode.link), and this DEC-13 sentence's own settings-route
+// anchor already reuses 'route' for something that is not an explorer link at all — so the
+// anchor's own visible text must not assume "this is an explorer" or "this is settings".
+const LINK_GLYPH: Record<LinkKind, string> = {
+  external: '↗',
+  route: '→',
 };
 
 // ── Copy-on-click (D-14) ─────────────────────────────────────────────────────────────────
@@ -104,8 +123,14 @@ function clearAllCopyTimers() {
 // allowlist). Scoped to the row's own mounted subtree via closest(), never document.querySelector
 // — this file's dapps-own-their-container rule applies to a fallback path exactly as much as
 // to the primary render.
-function revealCopyFallback(row: HTMLElement, text: string) {
-  const field = row.closest('.layout-tool')?.querySelector<HTMLInputElement>('#decode-copy-reveal');
+// fieldSelector (NET-07, T-05-30): which fallback field this reveal targets. Defaults to the
+// Result panel's own field so every pre-existing caller (tree copy-on-click, share links) is
+// unchanged; the Log tab's two Copy buttons pass '#decode-log-copy-reveal' instead, since
+// #decode-copy-reveal sits inside #decode-tab-result — reusing it would put the payload in a
+// panel the person copying isn't looking at, which reads as "nothing happened" rather than as
+// a failure.
+function revealCopyFallback(row: HTMLElement, text: string, fieldSelector = '#decode-copy-reveal') {
+  const field = row.closest('.layout-tool')?.querySelector<HTMLInputElement>(fieldSelector);
   if (!field) return;
   field.value = text;
   field.classList.add('revealed');
@@ -218,6 +243,31 @@ function renderNode(node: DecodeNode): HTMLElement {
     void copyValue(node, row);
   });
   row.append(valueBtn);
+  // ETH-10/ETH-11: exposes the full value on hover whenever the displayed text is a shortened
+  // stand-in for it — a no-op for every node whose display already equals its underlying text
+  // (applyFullValueTitle's own equality check), so this call is safe to make unconditionally.
+  applyFullValueTitle(valueBtn, node);
+
+  // 05-06 (D-30, ETH-10): the link travels on the node — `link`/`linkKind` are the whole data
+  // path (05-01 Task 0) — and is drawn here as a SIBLING following the value button, never a
+  // descendant of it: an anchor nested inside a <button> is invalid HTML with undefined
+  // activation behaviour (handoff §6 calls the transaction link "secondary" for the same
+  // reason). A node whose `link` member is absent (unknown chain, no settings dapp) renders no
+  // anchor at all — never one with no target.
+  if (node.link) {
+    const kind = node.linkKind ?? 'external';
+    const anchor = uiCreateExternalLink(node.link, LINK_GLYPH[kind], kind);
+    anchor.className = 'decode-tree-link';
+    // Scoped to address/txhash: those are the two modes whose display text is a SHORTENED
+    // stand-in for `raw` (see DISPLAY_DISPATCH above), so the anchor's own glyph is exactly as
+    // much a stand-in as the value button's shortened text is — hovering either should reveal
+    // the same full value. A non-shortened node's link (the DEC-13 settings-route sentence) has
+    // nothing to reveal here: its `raw` is the decode's own payload, not the sentence's text.
+    if (node.display === 'address' || node.display === 'txhash') {
+      applyFullValueTitle(anchor, node);
+    }
+    row.append(anchor);
+  }
 
   if (node.provenance) {
     const badge = document.createElement('span');
@@ -409,6 +459,71 @@ function renderLogEmpty(): HTMLElement {
   return p;
 }
 
+// NET-06: expansion state, keyed on entry OBJECT IDENTITY — never a composite of its fields.
+// createLiveLogStore (core.ts:65-89) never copies an entry: record() rebuilds the array around
+// the SAME objects and subscribe() hands that array straight to every subscriber, so identity
+// is stable across the buffer's whole life, which is exactly what a WeakSet needs. A composite
+// key of timestamp+attempt+url is NOT collision-proof: two concurrent identical requests
+// recorded in the same millisecond agree on all three and would expand together. renderLogTable
+// rebuilds its DOM wholesale on every notification; without this set, a row the user had open
+// mid-decode would silently collapse the instant the next entry landed. Needs no cleanup on
+// Clear — dropping the entries array drops the only references (WeakSet has no clear() method
+// to call even if one wanted to).
+const LOG_EXPANDED = new WeakSet<LogEntry>();
+
+// Claude's discretion (CONTEXT.md) — 2 KB keeps one large response from pushing the whole
+// table off screen while still showing enough to be useful. Named so the byte-count label
+// below and this suite's own tests read the same value rather than each restating it.
+const LOG_BODY_PREVIEW_BYTES = 2048;
+
+function truncateLogBody(body: string): string {
+  const byteLength = new TextEncoder().encode(body).length;
+  if (byteLength <= LOG_BODY_PREVIEW_BYTES) return body;
+  return `${body.slice(0, LOG_BODY_PREVIEW_BYTES)}… (${byteLength} bytes total, truncated)`;
+}
+
+// NET-06: the full request and response for one entry — one row per PRESENT field, never an
+// empty row and never the stringified form of a missing value. Every value here is already the
+// redacted form the transport recorded at record time (D-24); this function never re-derives
+// anything from a live request object.
+function renderLogDetail(entry: LogEntry): HTMLElement {
+  const el = document.createElement('div');
+  el.className = 'decode-log-detail';
+
+  function addField(label: string, value: string) {
+    const field = document.createElement('div');
+    field.className = 'decode-log-detail-field';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'decode-log-detail-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'decode-log-detail-value';
+    valueEl.textContent = value;
+    field.append(labelEl, valueEl);
+    el.append(field);
+  }
+
+  if (entry.url !== undefined) addField('URL', entry.url);
+  if (entry.query && Object.keys(entry.query).length > 0) {
+    addField(
+      'Query',
+      Object.entries(entry.query)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('&'),
+    );
+  }
+  if (entry.requestHeaders) {
+    for (const [name, value] of Object.entries(entry.requestHeaders)) {
+      addField(`Header: ${name}`, value);
+    }
+  }
+  if (entry.requestBody !== undefined) addField('Request body', truncateLogBody(entry.requestBody));
+  if (entry.responseBody !== undefined) addField('Response body', truncateLogBody(entry.responseBody));
+  if (entry.error !== undefined) addField('Error', entry.error);
+
+  return el;
+}
+
 function renderLogTable(entries: LogEntry[]): HTMLElement {
   const table = document.createElement('table');
   table.className = 'decode-log-table';
@@ -424,14 +539,56 @@ function renderLogTable(entries: LogEntry[]): HTMLElement {
   table.append(thead);
 
   const tbody = document.createElement('tbody');
+  let detailIdCounter = 0;
   for (const entry of entries) {
-    const tr = document.createElement('tr');
+    detailIdCounter += 1;
+    const detailId = `decode-log-detail-${detailIdCounter}`;
+    const expanded = LOG_EXPANDED.has(entry);
+
+    // NET-06: a summary row plus a sibling detail row, the detail hidden until pressed —
+    // following renderNode's own disclosure pattern (aria-expanded/aria-controls, the same
+    // toggle glyphs) so both disclosure affordances in this dapp behave identically. The
+    // disclosure cell has no matching <th> — LOG_COLUMNS/the header row are unchanged so the
+    // pre-existing column-label assertion stays green; this is one extra body cell, not a
+    // ninth labelled column.
+    const summaryRow = document.createElement('tr');
+    summaryRow.className = 'decode-log-summary-row';
+
+    const disclosureCell = document.createElement('td');
+    const disclosure = document.createElement('button');
+    disclosure.type = 'button';
+    disclosure.className = 'decode-log-disclosure';
+    disclosure.setAttribute('aria-expanded', String(expanded));
+    disclosure.setAttribute('aria-controls', detailId);
+    disclosure.textContent = expanded ? '▾' : '▸';
+    disclosureCell.append(disclosure);
+    summaryRow.append(disclosureCell);
+
     for (const col of LOG_COLUMNS) {
       const td = document.createElement('td');
       td.textContent = String(entry[col.key]);
-      tr.append(td);
+      summaryRow.append(td);
     }
-    tbody.append(tr);
+    tbody.append(summaryRow);
+
+    const detailRow = document.createElement('tr');
+    detailRow.className = 'decode-log-detail-row';
+    detailRow.id = detailId;
+    detailRow.hidden = !expanded;
+    const detailCell = document.createElement('td');
+    detailCell.colSpan = LOG_COLUMNS.length + 1;
+    detailCell.append(renderLogDetail(entry));
+    detailRow.append(detailCell);
+    tbody.append(detailRow);
+
+    disclosure.addEventListener('click', () => {
+      const next = disclosure.getAttribute('aria-expanded') !== 'true';
+      disclosure.setAttribute('aria-expanded', String(next));
+      disclosure.textContent = next ? '▾' : '▸';
+      detailRow.hidden = !next;
+      if (next) LOG_EXPANDED.add(entry);
+      else LOG_EXPANDED.delete(entry);
+    });
   }
   table.append(tbody);
 
@@ -548,14 +705,26 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     return missingDomHandle;
   }
 
-  // Trivial adapters this tracer's decoder needs nothing more than: `hex` declares no
-  // settings and links to nothing. Real settings/log/links wiring (D-04's LiveLogStore is
-  // already real via window.DxDecode.log; explorer links are plan 03-03/03-06's factory) is
-  // out of this task's scope.
-  const settings = core.createNullSettingsPort();
+  // D-07/D-30: real settings and explorer-link wiring, replacing the tracer's trivial
+  // adapters — same variable names, same downstream wiring into createDecodeService.
+  const settings = createShellSettingsPort(dx);
   const log = window.DxDecode?.log ?? { record() {}, subscribe: () => () => undefined, clear() {} };
-  const links: LinkPort = { address: () => null, tx: () => null };
-  const decodeService = core.createDecodeService({ registry, settings, log, links });
+  const links: LinkPort = createLiveExplorerLinks(settings);
+  // 05-05 Task 3: the transport, the two registry adapters and the resolver, all real in the
+  // shipped app — this is what makes a REGISTRY badge and a Log tab entry reachable from a
+  // decode rather than only from a test double. `target` is deliberately NOT supplied: a
+  // pasted calldata blob has no target address, so the verified rung stays unreachable in
+  // production this phase (Phase 6's ETH-08 transaction input is what supplies it).
+  const { transport, signatures, settingsRoute } = createDecodeAdapters(dx, settings, log);
+  const decodeService = core.createDecodeService({
+    registry,
+    settings,
+    log,
+    links,
+    transport,
+    signatures,
+    settingsRoute,
+  });
 
   const listeners: Array<() => void> = [];
 
@@ -764,9 +933,13 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // D-18: the log is a global ring buffer, emptied only by Clear — subscribe delivers the
   // current entries immediately (so a remount shows history rather than a false-empty tab) and
   // again on every record/clear, so the tab updates live without a further decode.
+  // NET-07: the two Copy buttons below read this snapshot rather than re-subscribing
+  // themselves — one subscription, one source of truth for "what's currently in the log".
+  let currentLogEntries: LogEntry[] = [];
   let unsubscribeLog: (() => void) | null = null;
   if (logContainer) {
     unsubscribeLog = log.subscribe((entries) => {
+      currentLogEntries = entries;
       logContainer.replaceChildren(renderLog(entries));
     });
   }
@@ -774,6 +947,37 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     const onLogClear = () => log.clear();
     logClearBtn.addEventListener('click', onLogClear);
     listeners.push(() => logClearBtn.removeEventListener('click', onLogClear));
+  }
+
+  // NET-07: both Copy buttons read the already-redacted, currently-buffered LogEntry objects
+  // and nothing else — the whole of NET-07's correctness (D-24). A clipboard failure reveals
+  // the payload in THIS panel's own fallback field, never the Result panel's
+  // #decode-copy-reveal (T-05-30) — passed as revealCopyFallback's fieldSelector argument.
+  const logCopyJsonBtn = container.querySelector<HTMLButtonElement>('#decode-log-copy-json-btn');
+  const logCopyCurlBtn = container.querySelector<HTMLButtonElement>('#decode-log-copy-curl-btn');
+
+  async function copyLogPayload(text: string, button: HTMLButtonElement): Promise<void> {
+    const wrote = await writeClipboard(text);
+    if (!wrote) {
+      revealCopyFallback(button, text, '#decode-log-copy-reveal');
+      return;
+    }
+    confirmCopy(button);
+  }
+
+  if (logCopyJsonBtn) {
+    const onLogCopyJson = () => {
+      void copyLogPayload(logEntriesToJson(currentLogEntries), logCopyJsonBtn);
+    };
+    logCopyJsonBtn.addEventListener('click', onLogCopyJson);
+    listeners.push(() => logCopyJsonBtn.removeEventListener('click', onLogCopyJson));
+  }
+  if (logCopyCurlBtn) {
+    const onLogCopyCurl = () => {
+      void copyLogPayload(currentLogEntries.map(logEntryToCurl).join('\n'), logCopyCurlBtn);
+    };
+    logCopyCurlBtn.addEventListener('click', onLogCopyCurl);
+    listeners.push(() => logCopyCurlBtn.removeEventListener('click', onLogCopyCurl));
   }
 
   renderEmptyResult();
@@ -869,6 +1073,201 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   return handle;
 }
 
+// Phase 5 Task 0 declared six placeholders (05-01) as REQUIRED members of DxDecodeUiTestHooks so
+// the exact-intersection assignment below stays an enforceable compile-time obligation (a hook
+// declared in types.d.ts but never implemented fails tsc). All six are now real: 05-04 built
+// createShellSettingsPort, renderLogDetail (above, beside renderLogTable), logEntriesToJson and
+// logEntryToCurl; this plan (05-06) builds the last two, uiCreateExternalLink and
+// applyFullValueTitle, closing the Known Stubs section 05-01-SUMMARY.md opened.
+
+// D-07: bridges a decoder's bare setting key to the host's own two-argument
+// dx.settings.get(sectionId, key) API by scanning dx.settings.getSections() for the section
+// that declares it — never by naming a plugin's section id as a literal inside this directory,
+// which is exactly the dotdev-specific coupling the DEC-14 guard exists to forbid.
+// Feature-detects every step; a host with no settings plugin, a host whose getSections isn't a
+// function, or a key no section declares all resolve to undefined rather than throwing,
+// matching findSettingsRoute's own defensive shape in core.ts. When two sections both declare
+// the same bare key, the FIRST one in getSections() order wins — deterministic, and a test
+// pins it.
+function createShellSettingsPort(dx: unknown): SettingsPort {
+  return {
+    get(key: string): unknown {
+      try {
+        const shell = dx as
+          | {
+              settings?: {
+                getSections?: () => { id: string; definitions?: { key: string }[] }[];
+                get?: (sectionId: string, key: string) => unknown;
+              };
+            }
+          | null
+          | undefined;
+        if (!shell?.settings) return undefined;
+        const { getSections, get } = shell.settings;
+        if (typeof getSections !== 'function' || typeof get !== 'function') return undefined;
+        const sections = getSections();
+        if (!Array.isArray(sections)) return undefined;
+        for (const section of sections) {
+          if (section?.definitions?.some((def) => def.key === key)) {
+            return get(section.id, key);
+          }
+        }
+        return undefined;
+      } catch {
+        return undefined;
+      }
+    },
+  };
+}
+
+// ETH-10/ETH-11/ETH-14: the real LinkPort createDecodeService receives (D-30). Closes over the
+// SETTINGS PORT, never over a chain id — createDecodeService captures this port once in its
+// closure (init(), above) and reuses it for every decode, so a LinkPort built from a chain id
+// read once at mount would keep pointing at the old chain's explorer after the person changes
+// it, and Phase 1's cross-tab settings sync makes that an ordinary event, not a corner case.
+// Reading settings.get('chainId') INSIDE each member, at call time, is what fixes it — do not
+// "simplify" this back to core.createExplorerLinks(settings.get('chainId')) at the call site;
+// that reintroduces the exact staleness this closure exists to prevent (05-04 review, HIGH).
+// core.createExplorerLinks already accepts a chain id as a number or a string (a real settings
+// read stores the string form), so no normalisation is needed here.
+function createLiveExplorerLinks(settings: SettingsPort): LinkPort {
+  function currentChainId(): number | string | null {
+    const raw = settings.get('chainId');
+    return raw === undefined || raw === null ? null : (raw as number | string);
+  }
+  return {
+    address(addr) {
+      const chainId = currentChainId();
+      const core = window.DxDecode?.core;
+      return chainId === null || !core ? null : core.createExplorerLinks(chainId).address(addr);
+    },
+    tx(hash) {
+      const chainId = currentChainId();
+      const core = window.DxDecode?.core;
+      return chainId === null || !core ? null : core.createExplorerLinks(chainId).tx(hash);
+    },
+  };
+}
+
+// 05-05 Task 3: the composition root — the single place the transport, both registry adapters
+// and the resolver meet a DecodeService. Called ONCE per mount from init(), never per decode,
+// so every decode in this mount shares the SAME transport (one token bucket, D-22) rather than
+// re-composing sources — and constructing it here issues no request; the first request happens
+// only when a decode needs a selector it cannot resolve locally (T-05-32).
+//
+// Feature-detects every namespace sub-key it reads — a host shell could in principle load
+// ui.js without transport.js (the manifest makes that unlikely here, but DEC-14's whole
+// portability posture is that this directory works in a shell it did not configure). A missing
+// sub-key yields an omitted option; DecodeContext's members are optional precisely so the
+// decoder degrades to the local table instead of throwing.
+function createDecodeAdapters(
+  dx: unknown,
+  settings: SettingsPort,
+  log: LogPort,
+): { transport?: TransportPort; signatures?: SignatureLookupPort; settingsRoute?: string } {
+  const transportModule = window.DxDecode?.transport;
+  const signaturesModule = window.DxDecode?.signatures;
+  const core = window.DxDecode?.core;
+
+  let transport: TransportPort | undefined;
+  if (transportModule) {
+    // 05-03 corrected this default to 3; reading it here (rather than hardcoding it a second
+    // time) is what keeps the visible setting and the enforced rate the same number.
+    const rps = settings.get('etherscanRps');
+    transport = transportModule.createTransport({ log, rps: typeof rps === 'number' ? rps : undefined });
+  }
+
+  let signatures: SignatureLookupPort | undefined;
+  if (
+    transport &&
+    signaturesModule?.createOpenChainAdapter &&
+    signaturesModule.create4byteAdapter &&
+    signaturesModule.createSignatureResolver
+  ) {
+    // D-21: OpenChain then 4byte, in that order — "prefer OpenChain over 4byte, and never
+    // present a single 4byte hit as authoritative".
+    const openchain = signaturesModule.createOpenChainAdapter(transport);
+    const fourbyte = signaturesModule.create4byteAdapter(transport);
+    signatures = signaturesModule.createSignatureResolver([openchain, fourbyte]);
+  }
+
+  // core.findSettingsRoute(dx) returns null for a host with no settings dapp — DEC-13's
+  // sentence then renders with no link rather than a broken one.
+  const settingsRoute = core?.findSettingsRoute(dx) ?? undefined;
+
+  return { transport, signatures, settingsRoute };
+}
+
+function logEntriesToJson(entries: LogEntry[]): string {
+  // D-24: entries already carry redacted url/query/requestHeaders — nothing further to strip.
+  return JSON.stringify(entries, null, 2);
+}
+
+// NET-07: single-quotes the url and every header argument, escaping an embedded single quote
+// as '\'' (close the quote, an escaped literal quote, reopen) — a URLSearchParams-built query
+// string cannot contain one, but a user-typed RPC host is free text that could, and an
+// unescaped quote there would produce a silently malformed command. Scope is deliberately
+// GET-only with no body flag: this phase's only request shape (RESEARCH.md Don't Hand-Roll) —
+// a body would need a -d/--data flag and its own escaping.
+function curlQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function logEntryToCurl(entry: LogEntry): string {
+  const url = entry.url ?? `${entry.host}${entry.path}`;
+  const parts = ['curl', '-X', entry.method, curlQuote(url)];
+  if (entry.requestHeaders) {
+    // Without this, a redacted Authorization value would never reach the copied command at
+    // all — NET-07's header clause would be satisfied only in the JSON surface.
+    for (const [name, value] of Object.entries(entry.requestHeaders)) {
+      parts.push('-H', curlQuote(`${name}: ${value}`));
+    }
+  }
+  return parts.join(' ');
+}
+
+// D-03 part 3: the ONE construction site in this directory permitted to name `href` — the
+// portability guard's helper-scoped exemption names this function specifically, and a
+// synthetic case moving this exact assignment outside it is proven to still fail
+// (test/decode-portability.test.ts). `target`/`raw` never reach this function un-shape-
+// validated — the decoder composes `target` from `ctx.links`/`ctx.settingsRoute` only after
+// its own shape check (D-30); this function draws whatever it is given, unchanged.
+//
+// T-05-33: `external` gets a new browsing context AND `rel="noopener noreferrer"` — a
+// third-party explorer opened without it holds a live `window.opener` reference back to a tab
+// showing decoded calldata and settings, and can navigate it. `route` is same-document (an
+// in-shell hash route) and gets neither: `noopener` on a same-document link is noise.
+function uiCreateExternalLink(target: string, text: string, kind: 'external' | 'route'): HTMLElement {
+  const anchor = document.createElement('a');
+  // A route is an in-shell hash route, not a server path — compose it the same way
+  // buildShareUrl already does (`#${route}`), never assign the bare manifest route as `href`
+  // verbatim: the vendored router navigates by writing `location.hash` and intercepts no
+  // anchor clicks, so a bare `/settings` is a full-page navigation to a URL that 404s on
+  // GitHub Pages and IPFS alike (CR-01). Guard against a route value that already carries its
+  // own leading `#` (defensive; nothing in this directory produces one today) so this never
+  // emits `##`.
+  anchor.href = kind === 'route' ? (target.startsWith('#') ? target : `#${target}`) : target;
+  anchor.textContent = text;
+  if (kind === 'external') {
+    anchor.target = '_blank';
+    anchor.rel = 'noopener noreferrer';
+  }
+  return anchor;
+}
+
+// ETH-10/ETH-11: reads the IDENTICAL expression copyValue reads (underlyingText(node),
+// above) — deriving the full value a second way here is the exact failure mode sharing one
+// expression exists to avoid. Sets a title only when the element's own visible text is NOT
+// the full value: a row that already shows everything has nothing to reveal, so it gets no
+// tooltip (a plain element property, not a network/storage identifier — no guard amendment
+// needed for this function).
+function applyFullValueTitle(el: HTMLElement, node: DecodeNode): void {
+  const full = underlyingText(node);
+  if (full === undefined) return;
+  if (el.textContent === full) return;
+  el.title = full;
+}
+
 // types.d.ts's DxDecodeUiModule declares only init() — the driving adapter's public contract.
 // The pure render functions below exist purely so test/decode-ui.test.ts can drive the renderer
 // with hand-built DecodeNode literals directly, rather than only ever through a full mount + a
@@ -882,6 +1281,12 @@ const uiModule: DxDecodeUiModule & DxDecodeUiTestHooks = {
   renderRaw,
   rawViewDispatchKeys: () => Object.keys(RAW_VIEW_DISPATCH),
   renderLog,
+  createShellSettingsPort,
+  renderLogDetail,
+  logEntriesToJson,
+  logEntryToCurl,
+  uiCreateExternalLink,
+  applyFullValueTitle,
 };
 
 window.DxDecode.ui = uiModule;

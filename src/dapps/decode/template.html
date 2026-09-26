@@ -47,6 +47,8 @@
 
       <div class="tab-content active" id="decode-tab-result">
         <div id="decode-tree" class="decode-tree"></div>
+        <!-- decode-copy-reveal: this panel's own clipboard fallback field, paired with
+             decode-log-copy-reveal below in the Log panel -->
         <input
           type="text"
           id="decode-copy-reveal"
@@ -63,8 +65,19 @@
       <div class="tab-content" id="decode-tab-log">
         <div class="decode-log-controls">
           <button type="button" id="decode-log-clear-btn">Clear</button>
+          <button type="button" id="decode-log-copy-json-btn">Copy as JSON</button>
+          <button type="button" id="decode-log-copy-curl-btn">Copy as cURL</button>
         </div>
         <div id="decode-log" class="decode-log"></div>
+        <!-- decode-log-copy-reveal: this panel's own clipboard fallback field, paired with
+             decode-copy-reveal above in the Result panel -->
+        <input
+          type="text"
+          id="decode-log-copy-reveal"
+          class="decode-copy-reveal"
+          readonly
+          aria-label="Full copied value (shown when the clipboard is unavailable)"
+        />
       </div>
     </div>
   </div>

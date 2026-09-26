@@ -13,7 +13,8 @@
 // gets somebody's attention), where a resolver that cannot classify something would fail open.
 // That trade is explained in full beside extractExpressionCandidates() below.
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
@@ -27,12 +28,28 @@ const DECODE_DIR = resolve(DAPPS_DIR, 'decode');
 // manifest.json (its two portability fields are asserted directly, below) and never compiled
 // .js output (this guard is a statement about what was written, not about what happened to
 // compile — see the "no build step" note on the source-only design in the plan).
+//
+// D-04: RECURSIVE, closing a latent hole — the original version filtered readdirSync's own
+// (non-recursive) listing, so a `src/dapps/decode/net/` subdirectory would have escaped every
+// scan below silently. Chosen over "assert the directory stays flat" because a real subdirectory
+// is not hypothetical here forever (04 D-01/D-02 forbid one today only for a `.gitignore`-glob
+// reason, not a portability one) and a collector that actually finds nested files is a stronger
+// guarantee than a collector that refuses to let them exist. The existing filter (`.ts` /
+// `template.html` / `style.css`) is unchanged; only the walk is new.
 function collectDecodeSourceFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.ts') || f === 'template.html' || f === 'style.css')
-    .sort()
-    .map((f) => resolve(dir, f));
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      out.push(...collectDecodeSourceFiles(full));
+      continue;
+    }
+    if (entry.name.endsWith('.ts') || entry.name === 'template.html' || entry.name === 'style.css') {
+      out.push(full);
+    }
+  }
+  return out.sort();
 }
 
 // ── Comment-and-string stripping (shared by every forbidden scan except the id/route one) ──
@@ -488,6 +505,9 @@ const ECMASCRIPT_BUILTINS = [
   'BigInt',
   'Map',
   'Set',
+  // 05-04: ui.ts's Log-row expansion state (NET-06) — keyed on entry object identity, a
+  // language builtin, not a network or storage primitive.
+  'WeakSet',
   'JSON',
   'Math',
   'Object',
@@ -500,6 +520,9 @@ const ECMASCRIPT_BUILTINS = [
   // 04-02: decoders-url.ts's Percent.decode (codecs.ts) wraps this in try/catch at the codec
   // boundary — a language builtin, not a network or storage primitive.
   'decodeURIComponent',
+  // 05-01: keccak.ts's split-lane sponge state (D-17) — a typed array, not a network/storage
+  // primitive.
+  'Uint32Array',
 ];
 
 function isAllowedGlobal(name: string): boolean {
@@ -551,6 +574,48 @@ const NETWORK_IDENTIFIERS = [
   'Worker',
   'SharedWorker',
 ];
+
+// D-03: the one-file exemption (05-03). The trade, stated once, here: exactly one file —
+// `transport.ts` — may name `fetch`, and in exchange the guard now asserts something STRONGER
+// than the prohibition it narrows. Before this phase the claim was "no request can be made from
+// this directory"; after it, the claim is "only one file can make a request, and every request
+// it makes appears in the Log tab" — which is exactly what NET-05 promises anyway, so the guard
+// enforces a product requirement instead of a prohibition the phase has outgrown. The exemption
+// covers ONLY the `fetch` identifier (checked below in scanSourceFile) — every other entry of
+// NETWORK_IDENTIFIERS and every entry of STORAGE_IDENTIFIERS still applies to transport.ts in
+// full; a whole-file exemption would quietly permit `localStorage` in the one file that also
+// holds the user's api key, which is the opposite of what the narrowing is for.
+const NETWORK_EXEMPT_FILES = ['transport.ts'];
+
+// The single identifier NETWORK_EXEMPT_FILES exempts — never widen this to a set. Kept as its
+// own named constant (not inlined as the string 'fetch') so the exemption-scoping check below
+// reads as "the one identifier the exemption covers" rather than a magic string repeated twice.
+const NETWORK_EXEMPTED_IDENTIFIER = 'fetch';
+
+// D-03.2: the positive assertion that makes the narrowing honest. Every INVOCATION of
+// NETWORK_EXEMPTED_IDENTIFIER inside the exempt file must sit inside the body of this one named
+// function — the function that writes the LogEntry (05-03's transport.ts). Named here so the
+// test and the module agree on one name rather than each restating it.
+const LOG_WRITING_FUNCTION = 'netRequest';
+
+// D-03 part 3 (05-06): the guard's SECOND narrowing — an anchor needs `href` in some form to be
+// navigable at all, and ETH-10's explorer link cannot be rendered without one. The trade is the
+// same shape as the fetch exemption above: exactly one file, `ui.ts`, may name `href`, and in
+// exchange every actual construction site is required to sit inside exactly one named function.
+// Every other entry of NETWORK_IDENTIFIERS and every entry of STORAGE_IDENTIFIERS still applies
+// to ui.ts in full — this narrowing covers ONLY `href`, checked below in scanSourceFile.
+const LINK_EXEMPT_FILES = ['ui.ts'];
+
+// The single identifier LINK_EXEMPT_FILES exempts — never widen this to a set, matching
+// NETWORK_EXEMPTED_IDENTIFIER's own precedent above.
+const LINK_EXEMPTED_IDENTIFIER = 'href';
+
+// D-03 part 3: the one named function permitted to construct a link target — asserted below to
+// be the ONLY place `href` may appear anywhere in this directory. Unlike NETWORK_EXEMPTED_IDENTIFIER
+// (a call, `fetch(...)`), `href` is written as a property (`anchor.href = target`), so its
+// containment check (below) matches bare occurrences, not invocations.
+const LINK_HELPER_NAME = 'uiCreateExternalLink';
+
 const STORAGE_IDENTIFIERS = [
   'localStorage',
   'sessionStorage',
@@ -573,6 +638,109 @@ function checkForbidden(code: string, identifiers: string[]): string[] {
 function checkOrgPrefix(code: string): string[] {
   const matches = code.match(ORG_PREFIX_RE);
   return matches ? [...new Set(matches)] : [];
+}
+
+// ── D-03.2: fetch-invocation containment, for the one exempt file ────────────────────────
+
+// Finds the byte range of `function <name>(...) { ... }`'s BODY (the braces and everything
+// between them) inside already comment-and-string-stripped code. Returns null when the function
+// is not declared at all — the containment check below then reports every invocation as
+// out-of-bounds, which is correct: an exempt file with no log-writing function has nowhere safe
+// for fetch to live. Balances only the parameter list's parens and the body's braces; does not
+// need to handle generics or default-parameter object literals for this directory's own code.
+function findFunctionBodyRange(code: string, functionName: string): { start: number; end: number } | null {
+  const escaped = functionName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const decl = new RegExp(`\\bfunction\\s+${escaped}\\s*\\(`);
+  const match = decl.exec(code);
+  if (!match) return null;
+
+  let i = match.index + match[0].length;
+  let parenDepth = 1; // the '(' the regex already consumed
+  while (i < code.length && parenDepth > 0) {
+    if (code[i] === '(') parenDepth++;
+    else if (code[i] === ')') parenDepth--;
+    i++;
+  }
+  while (i < code.length && code[i] !== '{') i++;
+  if (i >= code.length) return null;
+  const start = i;
+
+  let braceDepth = 0;
+  let j = i;
+  for (; j < code.length; j++) {
+    if (code[j] === '{') braceDepth++;
+    else if (code[j] === '}') {
+      braceDepth--;
+      if (braceDepth === 0) {
+        j++;
+        break;
+      }
+    }
+  }
+  return { start, end: j };
+}
+
+// Matches INVOCATIONS of `identifier` — the identifier immediately followed by an opening
+// parenthesis, optional whitespace between — never bare occurrences. Run against
+// comment-and-string-STRIPPED code (stripCommentsAndStrings' `code` output, never `commentsOnly`
+// or raw content), so a mention of the identifier inside a string literal or a comment never
+// reaches this scan at all — that is what proves the assertion scans invocations, not text. A
+// bare-occurrence scan would be self-invalidating here: if a future refusal-detection ever
+// matched the platform's own error text by string comparison, the identifier would appear inside
+// a string literal outside the log-writing function and a text-level scan would report a
+// perfectly correct file.
+function findInvocationPositions(code: string, identifier: string): number[] {
+  const re = new RegExp(`\\b${identifier}\\s*\\(`, 'g');
+  const positions: number[] = [];
+  let m: RegExpExecArray | null = re.exec(code);
+  while (m !== null) {
+    positions.push(m.index);
+    m = re.exec(code);
+  }
+  return positions;
+}
+
+// The claim this asserts is a STRUCTURAL one — "only LOG_WRITING_FUNCTION may invoke
+// NETWORK_EXEMPTED_IDENTIFIER" — and deliberately not a timing one. This scanner strips comments
+// and matches identifiers; it is not control-flow analysis and cannot prove a log entry is
+// written before every request or that every control path writes one. The completeness of
+// logging (one entry per attempt) is the transport suite's own behavioural assertions to make,
+// not this guard's.
+function checkFetchInvocationContainment(code: string): string[] {
+  const range = findFunctionBodyRange(code, LOG_WRITING_FUNCTION);
+  const violations: string[] = [];
+  for (const pos of findInvocationPositions(code, NETWORK_EXEMPTED_IDENTIFIER)) {
+    const inside = range !== null && pos >= range.start && pos < range.end;
+    if (!inside) {
+      violations.push(
+        `invokes "${NETWORK_EXEMPTED_IDENTIFIER}" outside ${LOG_WRITING_FUNCTION}() — only that function may invoke the network primitive`,
+      );
+    }
+  }
+  return violations;
+}
+
+// D-03 part 3 (05-06): the second and final narrowing of this guard's link-identifier claim.
+// `href` is permitted only inside `uiCreateExternalLink`'s own body, in `ui.ts`, and nowhere
+// else in the directory. Unlike the fetch exemption above, `href` is never INVOKED — it is
+// written as a property (`anchor.href = target`) — so containment here is bare-occurrence, not
+// call-shaped, but the structural claim is the same: this identifier appears in exactly one
+// place, and only that place.
+function checkLinkContainment(code: string): string[] {
+  const range = findFunctionBodyRange(code, LINK_HELPER_NAME);
+  const violations: string[] = [];
+  const re = new RegExp(`\\b${LINK_EXEMPTED_IDENTIFIER}\\b`, 'g');
+  let m: RegExpExecArray | null = re.exec(code);
+  while (m !== null) {
+    const inside = range !== null && m.index >= range.start && m.index < range.end;
+    if (!inside) {
+      violations.push(
+        `references "${LINK_EXEMPTED_IDENTIFIER}" outside ${LINK_HELPER_NAME}() — only that function may construct a link target`,
+      );
+    }
+    m = re.exec(code);
+  }
+  return violations;
 }
 
 // ── The other-dapp id and route lists, derived from the manifests on disk ─────────────────
@@ -650,15 +818,33 @@ function scanSourceFile(name: string, content: string): string[] {
   const commentsOnly = stripComments(content);
   const violations: string[] = [];
   const isTypeScript = name.endsWith('.ts');
+  // D-03.1: the exemption covers exactly this one file and exactly this one identifier — every
+  // other network identifier and every storage identifier below still runs against it unchanged.
+  const isNetworkExempt = NETWORK_EXEMPT_FILES.includes(name);
+  // D-03 part 3: same shape, for the link helper's `href` exemption.
+  const isLinkExempt = LINK_EXEMPT_FILES.includes(name);
 
   for (const v of checkOrgPrefix(code)) {
     violations.push(`${name}: org-prefixed identifier "${v}"`);
   }
   for (const v of checkForbidden(commentsOnly, NETWORK_IDENTIFIERS)) {
+    if (isNetworkExempt && v === NETWORK_EXEMPTED_IDENTIFIER) continue;
+    if (isLinkExempt && v === LINK_EXEMPTED_IDENTIFIER) continue;
     violations.push(
       `${name}: references a network-request API ("${v}") — no code in this directory can make a request, ` +
-        'so nothing it decodes is transmitted',
+        `except ${NETWORK_EXEMPT_FILES.join(', ')}, and only inside ${LOG_WRITING_FUNCTION}(), ` +
+        'so nothing it decodes is transmitted anywhere else',
     );
+  }
+  if (isNetworkExempt) {
+    for (const v of checkFetchInvocationContainment(code)) {
+      violations.push(`${name}: ${v}`);
+    }
+  }
+  if (isLinkExempt) {
+    for (const v of checkLinkContainment(code)) {
+      violations.push(`${name}: ${v}`);
+    }
   }
   for (const v of checkForbidden(commentsOnly, STORAGE_IDENTIFIERS)) {
     violations.push(`${name}: references a browser persistent-storage API ("${v}")`);
@@ -667,6 +853,11 @@ function scanSourceFile(name: string, content: string): string[] {
   // otherwise be misread as unlisted globals by the same rule that flags `window.foo()`.
   if (isTypeScript) {
     for (const v of checkAllowlistViolations(code)) {
+      // D-03: the allowlist is a flat, file-independent policy (ALLOWED_GLOBALS stays free of
+      // fetch — no OTHER file may use it), so the exemption is applied HERE, per-file, rather
+      // than by adding fetch to the shared list.
+      if (isNetworkExempt && v === NETWORK_EXEMPTED_IDENTIFIER) continue;
+      if (isLinkExempt && v === LINK_EXEMPTED_IDENTIFIER) continue;
       violations.push(`${name}: unlisted global "${v}" — not on the permitted-globals allowlist`);
     }
   }
@@ -743,6 +934,120 @@ describe('the guard cannot go green by finding nothing to check', () => {
   it('a moved or renamed directory collects zero files rather than silently passing every case', () => {
     const files = collectDecodeSourceFiles(resolve(SRC, 'dapps/does-not-exist'));
     expect(files.length).toBe(0);
+  });
+
+  // D-04: proves the recursion actually happens, against a real nested file on disk — not just
+  // that the flat case still works (the existing tests above already cover that).
+  it('recurses into a subdirectory, closing the D-04 hole a flat readdirSync would miss', () => {
+    const tmp = mkdtempSync(resolve(tmpdir(), 'decode-portability-d04-'));
+    try {
+      mkdirSync(resolve(tmp, 'nested'));
+      writeFileSync(resolve(tmp, 'nested', 'inner.ts'), 'export const x = 1;');
+      writeFileSync(resolve(tmp, 'top.ts'), 'export const y = 2;');
+      const files = collectDecodeSourceFiles(tmp);
+      expect(files).toContain(resolve(tmp, 'nested', 'inner.ts'));
+      expect(files).toContain(resolve(tmp, 'top.ts'));
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('D-03: the transport.ts fetch exemption', () => {
+  it('has exactly one entry, and it is transport.ts', () => {
+    expect(NETWORK_EXEMPT_FILES).toHaveLength(1);
+    expect(NETWORK_EXEMPT_FILES).toContain('transport.ts');
+  });
+
+  it('a synthetic non-exempt file naming fetch is still reported, worded to name the exemption', () => {
+    const violations = scanSourceFile('other.ts', 'fetch("https://example.com");');
+    expect(violations.some((v) => v.includes('"fetch"'))).toBe(true);
+    expect(violations.some((v) => v.includes('transport.ts'))).toBe(true);
+    // WR-01/pre-05 wording preserved verbatim — existing test at line ~890 pins the same
+    // substring against a non-exempt file and must keep passing unmodified.
+    expect(violations.some((v) => v.includes('no code in this directory can make a request'))).toBe(true);
+  });
+
+  it('a synthetic exempt file with the fetch call OUTSIDE netRequest is reported', () => {
+    const content = `
+      function helper() { return fetch('https://x'); }
+      function netRequest() { return null; }
+    `;
+    const violations = scanSourceFile('transport.ts', content);
+    expect(violations.some((v) => v.includes('outside netRequest'))).toBe(true);
+  });
+
+  it('the same call INSIDE netRequest is not reported', () => {
+    const content = `
+      function netRequest() { return fetch('https://x'); }
+    `;
+    const violations = scanSourceFile('transport.ts', content);
+    expect(violations).toEqual([]);
+  });
+
+  it('a bare mention of fetch in a string literal outside netRequest is NOT reported — invocations only, not occurrences', () => {
+    const content = `
+      // conceptually this file "calls fetch()" — the word alone, in a comment, is not an invocation
+      const note = 'this file uses fetch() internally';
+      function netRequest() { return fetch('https://x'); }
+    `;
+    const violations = scanSourceFile('transport.ts', content);
+    expect(violations).toEqual([]);
+  });
+
+  it('every other network identifier, and every storage identifier, still applies to transport.ts', () => {
+    const hrefViolations = scanSourceFile('transport.ts', "function netRequest() { location.href = 'x'; }");
+    expect(hrefViolations.some((v) => v.includes('"href"'))).toBe(true);
+
+    const storageViolations = scanSourceFile(
+      'transport.ts',
+      "function netRequest() { localStorage.setItem('a','b'); }",
+    );
+    expect(storageViolations.some((v) => v.includes('persistent-storage'))).toBe(true);
+  });
+});
+
+describe('D-03 part 3: the link helper href exemption (05-06)', () => {
+  it('has exactly one entry, and it is ui.ts', () => {
+    expect(LINK_EXEMPT_FILES).toHaveLength(1);
+    expect(LINK_EXEMPT_FILES).toContain('ui.ts');
+  });
+
+  it('a synthetic non-exempt file constructing a link is still reported', () => {
+    const content = "function helper() { const a = document.createElement('a'); a.href = 'x'; return a; }";
+    const violations = scanSourceFile('other.ts', content);
+    expect(violations.some((v) => v.includes('"href"'))).toBe(true);
+  });
+
+  it('a synthetic exempt file with href OUTSIDE uiCreateExternalLink is reported', () => {
+    const content = `
+      function helper() { const a = document.createElement('a'); a.href = 'x'; return a; }
+      function uiCreateExternalLink(target, text, kind) { return null; }
+    `;
+    const violations = scanSourceFile('ui.ts', content);
+    expect(violations.some((v) => v.includes('outside uiCreateExternalLink'))).toBe(true);
+  });
+
+  it('the same construction INSIDE uiCreateExternalLink is not reported', () => {
+    const content = `
+      function uiCreateExternalLink(target, text, kind) {
+        const anchor = document.createElement('a');
+        anchor.href = target;
+        return anchor;
+      }
+    `;
+    const violations = scanSourceFile('ui.ts', content);
+    expect(violations).toEqual([]);
+  });
+
+  it('every other network identifier still applies to ui.ts outside the helper', () => {
+    const violations = scanSourceFile('ui.ts', "function openIt() { window.open('x'); }");
+    expect(violations.some((v) => v.includes('"open"'))).toBe(true);
+  });
+
+  it('a file with no uiCreateExternalLink declared at all reports every href reference as out of bounds', () => {
+    const violations = scanSourceFile('ui.ts', "const a = document.createElement('a'); a.href = 'x';");
+    expect(violations.some((v) => v.includes('outside uiCreateExternalLink'))).toBe(true);
   });
 });
 

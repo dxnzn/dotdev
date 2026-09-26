@@ -116,11 +116,12 @@ async function wordsDecode(input: string, _ctx: DecodeContext): Promise<DecodeOu
 
   if (hasSelector) {
     // TXT-05's "selector on the first line". provenance is an existing DecodeNode member with
-    // an existing renderer badge (ui.ts) — 'unresolved' is exactly what this selector is, since
-    // no registry lookup happens in this phase. The annotation exists because the badge alone
-    // is ambiguous across phases: from Phase 5 on, 'unresolved' will mean "a lookup ran and
-    // found nothing"; here it means "no lookup ran at all", and a reader has no way to tell
-    // those apart from the badge alone.
+    // an existing renderer badge (ui.ts) — 'unresolved' here means THIS decoder ran no lookup,
+    // not that the app never does. From 05-05 on, pasting the same bytes and picking
+    // eth-calldata instead resolves the selector against the local table and both registries,
+    // and may badge LOCAL/REGISTRY/VERIFIED — abi-words itself never becomes that decoder, it
+    // stays a pure byte-pattern view, so ITS OWN selector node stays unresolved regardless of
+    // what eth-calldata would find for the same bytes.
     const selectorHex = wordsCodecs.Hex.encode(bytes.slice(0, SELECTOR_BYTES), { prefix: false });
     children.push({
       label: 'selector',
@@ -128,7 +129,7 @@ async function wordsDecode(input: string, _ctx: DecodeContext): Promise<DecodeOu
       display: 'hex',
       raw: `0x${selectorHex}`,
       provenance: 'unresolved',
-      annotations: ['no signature lookup runs in this build'],
+      annotations: ['no signature lookup runs for this decoder — pick eth-calldata to resolve the selector'],
     });
   }
 

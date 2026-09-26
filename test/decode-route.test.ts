@@ -21,7 +21,7 @@
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 const MAIN_PATH = resolve(__dirname, '../src/main.ts');
 const VENDOR_ROUTER_PATH = resolve(__dirname, '../src/vendor/dxkit/index.global.js');
@@ -209,5 +209,102 @@ describe("decode's own query parser — tolerant of both link forms", () => {
     const core = loadCompiledCore();
     expect(() => core.parseDecodeQuery('/tools/decode')).not.toThrow();
     expect(core.parseDecodeQuery('/tools/decode')).toEqual({});
+  });
+});
+
+// ── DEC-04: the `calldata=` alias ────────────────────────────────────────────────────────────
+
+describe('the calldata query alias (DEC-04)', () => {
+  it('a bare calldata parameter implies decoder eth-calldata and supplies data', () => {
+    const core = loadCompiledCore();
+    expect(core.parseDecodeQuery('/tools/decode/?calldata=0xabcd')).toEqual({
+      decoder: 'eth-calldata',
+      data: '0xabcd',
+    });
+  });
+
+  it('an explicit decoder wins over the alias implication', () => {
+    const core = loadCompiledCore();
+    const result = core.parseDecodeQuery('/tools/decode/?calldata=0xabcd&decoder=hex');
+    expect(result.decoder).toBe('hex');
+    expect(result.data).toBe('0xabcd');
+  });
+
+  it('an explicit data parameter wins over calldata as the payload source, while the decoder implication still stands', () => {
+    const core = loadCompiledCore();
+    const result = core.parseDecodeQuery('/tools/decode/?calldata=0xabcd&data=0xffff');
+    expect(result.data).toBe('0xffff');
+    expect(result.decoder).toBe('eth-calldata');
+  });
+
+  it('an empty calldata= still supplies data: "" and still implies the decoder', () => {
+    const core = loadCompiledCore();
+    expect(core.parseDecodeQuery('/tools/decode/?calldata=')).toEqual({
+      decoder: 'eth-calldata',
+      data: '',
+    });
+  });
+
+  it('a path with no query string is unaffected — still an empty object', () => {
+    const core = loadCompiledCore();
+    expect(core.parseDecodeQuery('/tools/decode')).toEqual({});
+  });
+
+  it('the pre-existing router and canonicalizer suites above are untouched by this alias', () => {
+    // Both halves — the framework router's own non-slash-form gap, and the src/main.ts
+    // canonicalizer that closes it — are asserted in their own describe blocks above and are
+    // not re-asserted here; this test exists only to document that this alias adds a THIRD,
+    // independent parsing rule rather than replacing either of the first two.
+    const core = loadCompiledCore();
+    expect(core.parseDecodeQuery('/tools/decode/?decoder=hex&data=0x68656c6c6f')).toEqual({
+      decoder: 'hex',
+      data: '0x68656c6c6f',
+    });
+  });
+});
+
+// ── DEC-04: the alias reaches the mounted UI, not just the parser ──────────────────────────
+
+function loadManifestDependencies(): string[] {
+  const manifest = JSON.parse(readFileSync(DECODE_MANIFEST_PATH, 'utf-8')) as { dependencies: string[] };
+  return manifest.dependencies.map((dep) => `../src/${dep}`);
+}
+
+function loadCompiledModule(relPath: string): void {
+  const code = readFileSync(resolve(__dirname, relPath), 'utf-8');
+  new Function('window', code)(window);
+}
+
+function loadDecodeTemplate(): string {
+  return readFileSync(resolve(DECODE_DIR, 'template.html'), 'utf-8');
+}
+
+describe('DEC-04 driven through the mounted dapp — the calldata alias selects the decoder and fills the textarea', () => {
+  beforeAll(() => {
+    for (const dep of loadManifestDependencies()) loadCompiledModule(dep);
+  });
+
+  it('mounting with a calldata query selects eth-calldata in the selector and fills the textarea with the payload', () => {
+    const core = (window as unknown as { DxDecode: { core: CoreWithParse } }).DxDecode.core;
+    const ui = (
+      window as unknown as {
+        DxDecode: { ui: { init(c: HTMLElement, dx: unknown, q?: unknown): () => void } };
+      }
+    ).DxDecode.ui;
+
+    const container = document.createElement('div');
+    container.innerHTML = loadDecodeTemplate();
+    document.body.append(container);
+
+    const query = core.parseDecodeQuery('/tools/decode/?calldata=0xabcd');
+    const cleanup = ui.init(container, {}, query);
+
+    const selector = container.querySelector<HTMLSelectElement>('#decode-selector');
+    const textarea = container.querySelector<HTMLTextAreaElement>('#decode-textarea');
+    expect(selector?.value).toBe('eth-calldata');
+    expect(textarea?.value).toBe('0xabcd');
+
+    cleanup();
+    container.remove();
   });
 });

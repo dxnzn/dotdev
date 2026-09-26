@@ -30,6 +30,24 @@ type DecodeNode = {
   // A node can carry both — a partially-decoded node with a caution is not the same thing
   // as one that did not decode at all.
   error?: string;
+  // Phase 5 Task 0 (option A, ratified): the ONLY concession this phase makes against 04 D-05's
+  // "these seams don't change" freeze, taken under that decision's own additive-concession
+  // clause (purely additive, a new optional field, never a changed one, recorded as a finding —
+  // see 05-01-SUMMARY.md's d05_additive_concession heading). `link` is an ALREADY-COMPOSED,
+  // ALREADY-SHAPE-VALIDATED target string — the decoder builds it (via `ctx.links` for an
+  // explorer url, `ctx.settingsRoute` for the settings route) and the renderer draws whatever it
+  // is given, unchanged from D-30's decoder-side rule. Absent means no link: an unknown chain, or
+  // a host with no settings dapp, produces a plain node with no anchor.
+  link?: string;
+  // Tells the renderer which kind of anchor to build: 'external' gets target="_blank" and
+  // rel="noopener noreferrer" (an explorer link leaves the page); 'route' is an in-shell hash
+  // route and gets neither. Named `link`/`linkKind` — NOT `href`/`url`/`src`/`target` — on
+  // purpose: `href`/`src`/`open`/`action` all sit on test/decode-portability.test.ts's
+  // NETWORK_IDENTIFIERS list, matched as whole words against comment-stripped source with string
+  // literals retained, and this .d.ts is scanned as a .ts file; `url` is avoided separately
+  // because it is a registered decoder id and test/decode-ui.test.ts:421 forbids any decoder id
+  // appearing as a string literal in ui.ts. Do not "tidy" these names later.
+  linkKind?: 'external' | 'route';
 };
 
 // ── Task 0's checkpoint additions (approve-as-specified) ────────────────────────────────
@@ -72,6 +90,22 @@ interface DecodeContext {
   log: LogPort;
   signal: AbortSignal;
   links: LinkPort;
+  // Phase 5 Task 0 (CONTEXT.md D-06): five OPTIONAL members. Optionality is load-bearing —
+  // test/decode-registry.test.ts and every Phase 3/4 decoder construct a bare context, and a
+  // required member here turns those suites red at once.
+  transport?: TransportPort;
+  abis?: AbiSourcePort;
+  signatures?: SignatureLookupPort;
+  // The contract address the call was sent to, when one is known. What AbiSourcePort.getAbi is
+  // called with. A single pasted calldata blob has no target, so this phase has no production
+  // supplier and the verified rung is stub-only — deliberately (see AbiSourcePort's own comment).
+  target?: string;
+  // The settings dapp's route, resolved by ui.ts from core.findSettingsRoute(dx) and passed in
+  // here so a decoder can satisfy DEC-13 without ever seeing the host `dx` — DecoderPort.decode
+  // takes no host handle, and hardcoding '/settings' inside this directory is exactly the
+  // coupling the portability guard forbids. null/absent when the host has no settings dapp,
+  // which renders the sentence with no link rather than a broken one.
+  settingsRoute?: string;
 }
 
 interface DecoderPort {
@@ -102,6 +136,23 @@ interface LogEntry {
   status: number;
   duration: number;
   attempt: number;
+  // Phase 5 Task 0 (CONTEXT.md D-23): six OPTIONAL members. Optionality is load-bearing —
+  // LOG_COLUMNS is typed `keyof LogEntry` (ui.ts:388-396) and renderLogTable is a flat
+  // seven-column table, so a required member breaks both at once. `url`, `query` and
+  // `requestHeaders` are the ALREADY-REDACTED forms — D-24: the transport stores the redacted
+  // values, never the real ones, so every surface (log display, Copy as JSON, Copy as cURL)
+  // inherits redaction structurally instead of each re-implementing it.
+  url?: string;
+  query?: Record<string, string>;
+  // NOT optional decoration: NET-07 promises both the api key AND an Authorization header are
+  // redacted in the log display and in both copy actions. Without a headers member on the
+  // entry, a redacted Authorization value has nowhere to live. D-08 means no Phase 5 request
+  // actually sends one (the key rides in the query parameter) — this member is exercised by a
+  // synthetic header in the transport suite, stated as such rather than pretended to be live.
+  requestHeaders?: Record<string, string>;
+  requestBody?: string;
+  responseBody?: string;
+  error?: string;
 }
 
 interface LogPort {
@@ -126,6 +177,113 @@ interface SettingsPort {
   get(key: string): unknown;
 }
 
+// ── Phase 5 ports (CONTEXT.md D-06/D-08/D-09/D-10/D-11/D-13/D-21, Task 0 option A) ───────
+//
+// All three ports are declared here, in this one pass, because Phase 6's Etherscan ABI
+// adapter, transaction adapter and proxy follower are written against exactly these shapes.
+// None of them may ever reject — a failed call resolves with an explicit failure branch
+// instead, matching this file's established no-throw convention (DEC-12).
+
+// A transport-level request. `dedupe` lets a caller opt an identical in-flight request into
+// sharing one network call rather than racing two.
+interface HttpRequest {
+  method: 'GET' | 'POST';
+  url: string;
+  query?: Record<string, string>;
+  body?: string;
+  headers?: Record<string, string>;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+  dedupe?: boolean;
+}
+
+// `ok` is TRANSPORT-LEVEL success, deliberately NOT `Response.ok` (HTTP 2xx). D-10: Etherscan
+// reports its own rate-limit and invalid-key failures as HTTP 200 with an in-body
+// `{"status":"0",...}` — a consumer that branches on `status`/`Response.ok` treats every one of
+// those failures as a success. `ok: false` with `error` set is what NET-04's retry logic and the
+// Log tab actually key off.
+interface HttpResponse {
+  status: number;
+  body: string;
+  json: unknown;
+  attempts: number;
+  ok: boolean;
+  error?: string;
+}
+
+// D-13/D-15: dotdev's own transport — DxKit has no HTTP port to reuse. `transport.ts` is the
+// SINGLE file in this directory allowed to reach the network (D-15); every adapter that fetches
+// anything (openchain, 4byte, Phase 6's Etherscan adapter) goes through this one method. Never
+// rejects (NET-04) — a failed request resolves with `ok: false` and `error` set.
+interface TransportPort {
+  request(req: HttpRequest): Promise<HttpResponse>;
+}
+
+interface AbiInput {
+  name: string;
+  type: string;
+  components?: AbiInput[];
+}
+
+interface AbiItem {
+  name: string;
+  type?: string;
+  inputs: AbiInput[];
+}
+
+// D-06: the verified-provenance rung. `address` is supplied from DecodeContext.target (below) —
+// this phase has no production supplier for `target` (a single pasted calldata blob has no
+// target address), so the rung is exercised against a stub here; Phase 6's ETH-08 transaction
+// input is what fills it for real. Resolves `null` when unavailable or unconfigured; never
+// rejects.
+interface AbiSourcePort {
+  getAbi(address: string, chainId: number): Promise<{ name: string; abi: AbiItem[] } | null>;
+}
+
+interface SignatureCandidate {
+  signature: string;
+  source: 'local' | 'openchain' | '4byte';
+  rank?: number;
+}
+
+// A RESULT OBJECT, not a bare array — load-bearing (D-21). A bare `[]` collapses "nobody knows
+// this selector" (unavailable: false, empty candidates) into "we could not ask" (unavailable:
+// true, reason naming the cause — a transport that gave up after its retry cap, an absent
+// adapter, a malformed body). 05-05 surfaces those as different user-facing messages, and the
+// distinction is unrecoverable once a bare array has erased it. `candidates` is the CANDIDATE
+// list — D-21 forbids presenting a single 4byte hit as authoritative — so the consumer ranks
+// and keccak-verifies every one of them (never trusts the list's own order).
+interface SignatureLookupResult {
+  candidates: SignatureCandidate[];
+  unavailable: boolean;
+  reason?: string;
+}
+
+// Selector resolution order — stated ONCE, here, so no later plan restates it differently:
+// `verified` (only when BOTH ctx.abis AND ctx.target are present — a verified ABI is ground
+// truth for a known target, and getAbi(address, chainId) has nothing to be called with
+// otherwise), then `local` (the in-repo table — the convenience path for when there is no
+// target, which is every production decode in this phase), then `registry` (ctx.signatures —
+// OpenChain, then 4byte), then `unresolved`. 05-05 cites this comment rather than restating the
+// order, and 05-01 Task 1's tests are written against it. Never rejects.
+interface SignatureLookupPort {
+  lookup(selector: string): Promise<SignatureLookupResult>;
+}
+
+// The parsed-signature type tree, shared by both abiParseTypeString (canonical signature
+// strings) and abiParseAbiInputs (JSON-ABI AbiInput[] — the shape an AbiSourcePort returns).
+// `length` is absent for a dynamic array (`T[]`), present for a fixed one (`T[3]`).
+interface TypeNode {
+  kind: 'elementary' | 'tuple' | 'array';
+  type: string;
+  name?: string;
+  components?: TypeNode[];
+  element?: TypeNode;
+  length?: number;
+  bits?: number;
+  size?: number;
+}
+
 // ── The decode service (core.ts) ─────────────────────────────────────────────────────────
 
 interface DecodeServiceOptions {
@@ -133,6 +291,15 @@ interface DecodeServiceOptions {
   settings: SettingsPort;
   log: LogPort;
   links: LinkPort;
+  // Phase 5 Task 0: the SAME five optional members DecodeContext grows (below), so 05-05's
+  // composition root can supply real adapters without a second edit to core.ts. Optionality is
+  // load-bearing here too — every plan up to and including this one constructs a bare options
+  // object with none of these set.
+  transport?: TransportPort;
+  abis?: AbiSourcePort;
+  signatures?: SignatureLookupPort;
+  target?: string;
+  settingsRoute?: string;
 }
 
 interface DecodeRunOptions {
@@ -319,6 +486,60 @@ interface DxDecodeUiTestHooks {
   renderRaw(rawBytes: Uint8Array | null, rawView: string): HTMLElement;
   rawViewDispatchKeys(): string[];
   renderLog(entries: LogEntry[]): HTMLElement;
+  // Phase 5 Task 0: the six members 05-04 and 05-06 implement, declared here and ONLY here.
+  // ui.ts:872-885 assigns its module object as the exact intersection
+  // `DxDecodeUiModule & DxDecodeUiTestHooks`, so it is excess-property checked — a hook
+  // implemented in a later plan but not declared here fails tsc, and one declared here but not
+  // implemented by the end of the phase fails it too. That symmetry is what makes the "types.d.ts
+  // is written once" claim enforceable rather than merely asserted (grep-checked in Task 0's own
+  // verify gate).
+  createShellSettingsPort(dx: unknown): SettingsPort;
+  renderLogDetail(entry: LogEntry): HTMLElement;
+  logEntriesToJson(entries: LogEntry[]): string;
+  logEntryToCurl(entry: LogEntry): string;
+  uiCreateExternalLink(target: string, text: string, kind: 'external' | 'route'): HTMLElement;
+  applyFullValueTitle(el: HTMLElement, node: DecodeNode): void;
+}
+
+// ── Phase 5 module-shaped interfaces (Task 0, one per new per-module sub-key) ────────────
+//
+// Each declares EVERY member its file ends the phase with — not only what this plan (05-01)
+// attaches — so a later plan's addition is a passthrough, never a second edit to this file.
+
+interface DxDecodeKeccakModule {
+  hash(input: Uint8Array): Uint8Array;
+  selector(signature: string): string;
+}
+
+interface DxDecodeAbiModule {
+  parseTypeString(sig: string): { name: string; types: TypeNode[] } | { error: string };
+  parseAbiInputs(inputs: AbiInput[]): TypeNode[];
+  canonicalType(type: TypeNode): string;
+  canonicalSignature(name: string, types: TypeNode[]): string;
+  decodeParameters(types: TypeNode[], data: Uint8Array, base: number, depth: number): DecodeNode[];
+  // 05-02 completes full coverage of these two (bytes/string/arrays/tuples); declared now so
+  // the module's eventual shape is fixed before either plan writes against it. Optional because
+  // this plan (05-01) wires only the elementary static types — the dynamic branch must exist and
+  // be reachable in Task 1's architecture, but is not yet expected to be a required member of
+  // every intermediate assignment.
+  isDynamic?(type: TypeNode): boolean;
+  headWidth?(type: TypeNode): number;
+}
+
+interface DxDecodeSignaturesModule {
+  // 05-01 (this plan).
+  createLocalSignatureTable(): SignatureLookupPort;
+  // 05-05 — optional here because this plan's signatures.ts assigns an object literal typed
+  // against this interface while implementing only createLocalSignatureTable; a required member
+  // 05-05 alone attaches would fail this plan's own tsc gate.
+  createOpenChainAdapter?(transport: TransportPort): SignatureLookupPort;
+  create4byteAdapter?(transport: TransportPort): SignatureLookupPort;
+  createSignatureResolver?(sources: SignatureLookupPort[]): SignatureLookupPort;
+}
+
+interface DxDecodeTransportModule {
+  // 05-03.
+  createTransport(options: unknown): TransportPort;
 }
 
 // The shared namespace type. Every sub-key is optional — not only the ones a later plan
@@ -338,6 +559,12 @@ interface DxDecodeNamespace {
   // existing shape, for a host shell to reach pressPlainShare/revealShareFailure without decode
   // coupling to what uses it.
   activeUi?: DxDecodeUiHandle | null;
+  // Phase 5 Task 0: every new module in this phase, optional like every existing sub-key —
+  // `window.DxDecode ??= {}` only typechecks against a type whose every member is optional.
+  keccak?: DxDecodeKeccakModule;
+  abi?: DxDecodeAbiModule;
+  signatures?: DxDecodeSignaturesModule;
+  transport?: DxDecodeTransportModule;
 }
 
 // dotdev's dapp namespace, not a DxKit framework namespace — the `Dx*` prefix has so far

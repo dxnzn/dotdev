@@ -32,11 +32,11 @@ function loadManifestDependencies(): string[] {
 // The tracer's proof — handoff §7.5 / TXT-02's verified vector.
 const HEX_VECTOR = '0x68656c6c6f';
 
-function mount(): { container: HTMLElement; cleanup: () => void } {
+function mount(dx: unknown = {}): { container: HTMLElement; cleanup: () => void } {
   const container = document.createElement('div');
   container.innerHTML = loadTemplate();
   document.body.append(container);
-  const cleanup = (window.DxDecode!.ui!.init as (c: HTMLElement, dx: unknown) => () => void)(container, {});
+  const cleanup = (window.DxDecode!.ui!.init as (c: HTMLElement, dx: unknown) => () => void)(container, dx);
   return {
     container,
     cleanup: () => {
@@ -62,6 +62,11 @@ type UiHelpers = {
   renderRaw: (rawBytes: Uint8Array | null, rawView: string) => HTMLElement;
   rawViewDispatchKeys: () => string[];
   renderLog: (entries: LogEntry[]) => HTMLElement;
+  // This plan's (05-04) own additions to DxDecodeUiTestHooks.
+  createShellSettingsPort: (dx: unknown) => { get(key: string): unknown };
+  renderLogDetail: (entry: LogEntry) => HTMLElement;
+  logEntriesToJson: (entries: LogEntry[]) => string;
+  logEntryToCurl: (entry: LogEntry) => string;
 };
 function ui(): UiHelpers {
   return window.DxDecode!.ui as unknown as UiHelpers;
@@ -448,6 +453,134 @@ describe('the generic DecodeNode tree renderer (Task 1)', () => {
     const sharedSelectors = extractCssSelectors(sharedCss);
     const overlap = [...decodeSelectors].filter((s) => sharedSelectors.has(s));
     expect(overlap).toEqual([]);
+  });
+});
+
+describe('ETH-10/ETH-11 — the link affordance and the full-value hover title (05-06 Task 1)', () => {
+  afterEach(() => {
+    removeClipboard();
+  });
+
+  const FULL_ADDRESS = '0x5e58ba0e06ed0f5558f83be732a4b899a674053e';
+  const SHORT_ADDRESS = '0x5e58ba0e...674053e';
+  const FULL_TXHASH = `0x${'ab'.repeat(32)}`;
+  const SHORT_TXHASH = '0xabababab...ababab';
+
+  it('renders an anchor as a SIBLING following the value button, never inside it', () => {
+    const node: DecodeNode = {
+      label: 'to',
+      type: 'address',
+      display: 'address',
+      value: SHORT_ADDRESS,
+      raw: FULL_ADDRESS,
+      link: `https://etherscan.io/address/${FULL_ADDRESS}`,
+      linkKind: 'external',
+    };
+    const el = ui().renderNode(node);
+    const row = el.querySelector('.decode-tree-row')!;
+    expect(row.querySelector('button.decode-tree-value a')).toBeNull();
+    const anchor = row.querySelector('a');
+    expect(anchor).not.toBeNull();
+    expect(anchor!.parentElement).toBe(row);
+    expect(anchor!.getAttribute('href')).toBe(node.link);
+  });
+
+  it('an external link carries rel="noopener noreferrer" and opens in a new context; a route link carries neither', () => {
+    const external = ui()
+      .renderNode({
+        label: 'x',
+        display: 'address',
+        value: SHORT_ADDRESS,
+        raw: FULL_ADDRESS,
+        link: 'https://etherscan.io/address/x',
+        linkKind: 'external',
+      })
+      .querySelector('a')!;
+    expect(external.getAttribute('rel')).toBe('noopener noreferrer');
+    expect(external.getAttribute('target')).toBe('_blank');
+
+    const route = ui()
+      .renderNode({ label: 'y', value: null, warning: 'note', link: '/settings', linkKind: 'route' })
+      .querySelector('a')!;
+    expect(route.getAttribute('rel')).toBeNull();
+    expect(route.getAttribute('target')).toBeNull();
+  });
+
+  it('CR-01: a route link is composed as a navigable in-shell hash route, never the bare manifest path', () => {
+    const route = ui()
+      .renderNode({ label: 'y', value: null, warning: 'note', link: '/settings', linkKind: 'route' })
+      .querySelector('a')!;
+    expect(route.getAttribute('href')).toBe('#/settings');
+  });
+
+  it('CR-01: a route value that already carries a leading "#" is not double-prefixed', () => {
+    const route = ui()
+      .renderNode({ label: 'y', value: null, warning: 'note', link: '#/settings', linkKind: 'route' })
+      .querySelector('a')!;
+    expect(route.getAttribute('href')).toBe('#/settings');
+  });
+
+  it('a node with no link renders no anchor at all', () => {
+    const el = ui().renderNode({ label: 'x', display: 'address', value: SHORT_ADDRESS, raw: FULL_ADDRESS });
+    expect(el.querySelector('a')).toBeNull();
+  });
+
+  it('an address node whose rendered text is shortened exposes the unshortened 42-character value on hover, comparing against the same string the copy handler writes', () => {
+    const node: DecodeNode = { label: 'x', display: 'address', value: SHORT_ADDRESS, raw: FULL_ADDRESS };
+    const valueBtn = ui().renderNode(node).querySelector('.decode-tree-value') as HTMLElement;
+    expect(valueBtn.textContent).toBe(SHORT_ADDRESS);
+    expect(valueBtn.title).toBe(FULL_ADDRESS);
+  });
+
+  it("the same assertion for a txhash node's 66-character raw, and the anchor carries that title too when a link is rendered", () => {
+    const node: DecodeNode = {
+      label: 'x',
+      display: 'txhash',
+      value: SHORT_TXHASH,
+      raw: FULL_TXHASH,
+      link: `https://etherscan.io/tx/${FULL_TXHASH}`,
+      linkKind: 'external',
+    };
+    const el = ui().renderNode(node);
+    const valueBtn = el.querySelector('.decode-tree-value') as HTMLElement;
+    const anchor = el.querySelector('a') as HTMLAnchorElement;
+    expect(valueBtn.title).toBe(FULL_TXHASH);
+    expect(anchor.title).toBe(FULL_TXHASH);
+  });
+
+  it('a node whose rendered text equals its underlying text has NO title attribute at all', () => {
+    const valueBtn = ui()
+      .renderNode({ label: 'x', display: 'int', value: 5n, raw: '5' })
+      .querySelector('.decode-tree-value') as HTMLElement;
+    expect(valueBtn.hasAttribute('title')).toBe(false);
+  });
+
+  it('a link on a non-shortened node (e.g. the DEC-13 settings-route sentence) carries no title', () => {
+    const anchor = ui()
+      .renderNode({
+        label: 'y',
+        value: null,
+        raw: 'the full decode payload, unrelated to the sentence',
+        link: '/settings',
+        linkKind: 'route',
+      })
+      .querySelector('a') as HTMLAnchorElement;
+    expect(anchor.hasAttribute('title')).toBe(false);
+  });
+
+  it('clicking the value button still copies the full raw, never the shortened display text', async () => {
+    const writeText = installClipboard(vi.fn(() => Promise.resolve()));
+    const node: DecodeNode = { label: 'x', display: 'address', value: SHORT_ADDRESS, raw: FULL_ADDRESS };
+    const el = ui().renderNode(node);
+    document.body.append(el);
+    el.querySelector<HTMLButtonElement>('.decode-tree-value')!.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledWith(FULL_ADDRESS);
+    el.remove();
+  });
+
+  it('the display dispatch table still has exactly seven entries', () => {
+    expect(ui().displayDispatchKeys()).toHaveLength(7);
   });
 });
 
@@ -1117,5 +1250,643 @@ describe('the three tabs — Result, the Raw hex dump, and the Log tab (Task 3)'
     expect(subscriberCount).toBe(0);
 
     window.DxDecode!.log = originalLog;
+  });
+});
+
+// ── Task 1: createShellSettingsPort / real LinkPort wiring ───────────────────────────────────
+
+describe('createShellSettingsPort — resolving a bare key by scanning getSections() (Task 1)', () => {
+  function stubDx(sections: { id: string; definitions: { key: string }[] }[], store: Record<string, unknown>) {
+    return {
+      settings: {
+        getSections: () => sections,
+        get: (sectionId: string, key: string) => store[`${sectionId}\0${key}`],
+      },
+    };
+  }
+
+  it('resolves a key by scanning, from a section id invented for the test (not a real plugin id)', () => {
+    const dx = stubDx([{ id: 'not-a-real-plugin-id', definitions: [{ key: 'chainId' }] }], {
+      'not-a-real-plugin-id\0chainId': 11155111,
+    });
+    expect(ui().createShellSettingsPort(dx).get('chainId')).toBe(11155111);
+  });
+
+  it('the same key resolves the same value from a DIFFERENT section id — the id genuinely does not matter', () => {
+    const dxA = stubDx([{ id: 'section-a', definitions: [{ key: 'chainId' }] }], { 'section-a\0chainId': 1 });
+    const dxB = stubDx([{ id: 'section-b', definitions: [{ key: 'chainId' }] }], { 'section-b\0chainId': 1 });
+    expect(ui().createShellSettingsPort(dxA).get('chainId')).toBe(1);
+    expect(ui().createShellSettingsPort(dxB).get('chainId')).toBe(1);
+  });
+
+  it('a key no section declares returns undefined', () => {
+    const dx = stubDx([{ id: 'section-a', definitions: [{ key: 'chainId' }] }], {});
+    expect(ui().createShellSettingsPort(dx).get('etherscanApiKey')).toBeUndefined();
+  });
+
+  it('a host with no settings member returns undefined rather than throwing', () => {
+    expect(() => ui().createShellSettingsPort({}).get('chainId')).not.toThrow();
+    expect(ui().createShellSettingsPort({}).get('chainId')).toBeUndefined();
+  });
+
+  it('a host whose settings.getSections is not a function returns undefined rather than throwing', () => {
+    const dx = { settings: { getSections: 'nope', get: () => 1 } };
+    expect(() => ui().createShellSettingsPort(dx).get('chainId')).not.toThrow();
+    expect(ui().createShellSettingsPort(dx).get('chainId')).toBeUndefined();
+  });
+
+  it('a null host returns undefined rather than throwing', () => {
+    expect(() => ui().createShellSettingsPort(null).get('chainId')).not.toThrow();
+    expect(ui().createShellSettingsPort(null).get('chainId')).toBeUndefined();
+  });
+
+  it('when two sections both declare the same key, the FIRST one in getSections() order wins', () => {
+    const dx = stubDx(
+      [
+        { id: 'first', definitions: [{ key: 'chainId' }] },
+        { id: 'second', definitions: [{ key: 'chainId' }] },
+      ],
+      { 'first\0chainId': 'from-first', 'second\0chainId': 'from-second' },
+    );
+    expect(ui().createShellSettingsPort(dx).get('chainId')).toBe('from-first');
+  });
+
+  it('no plugin section id (e.g. "ethereum") appears as a string literal in ui.ts', () => {
+    const source = readFileSync(resolve(__dirname, '../src/dapps/decode/ui.ts'), 'utf-8');
+    const literals = extractStringLiterals(source);
+    expect(literals).not.toContain('ethereum');
+  });
+});
+
+describe('createLiveExplorerLinks — real LinkPort wiring, read per call, never at mount (Task 1)', () => {
+  const LINK_PROBE_ID = 'test-link-probe-05-04';
+
+  beforeAll(() => {
+    // A temporary decoder that calls ctx.links.address(...) — no first-wave decoder does yet
+    // (that's a Phase 5/6 decorator's job), so this is the only way to observe the LinkPort
+    // createDecodeService actually wires, end to end, without exporting the internal factory
+    // (createLiveExplorerLinks is deliberately NOT one of DxDecodeUiTestHooks' members).
+    window.DxDecode!.registry!.register({
+      id: LINK_PROBE_ID,
+      label: 'link probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        const link = ctx.links.address('0xabc');
+        return { node: { label: 'probe', value: link ?? 'none', raw: link ?? 'none' } };
+      },
+    });
+  });
+
+  function stubChainDx(initial: unknown) {
+    let chainId = initial;
+    return {
+      dx: {
+        settings: {
+          getSections: () => [{ id: 'some-section', definitions: [{ key: 'chainId' }] }],
+          get: (_sectionId: string, key: string) => (key === 'chainId' ? chainId : undefined),
+        },
+      },
+      setChainId(next: unknown) {
+        chainId = next;
+      },
+    };
+  }
+
+  async function runProbe(container: HTMLElement): Promise<string> {
+    container.querySelector<HTMLSelectElement>('#decode-selector')!.value = LINK_PROBE_ID;
+    container.querySelector<HTMLTextAreaElement>('#decode-textarea')!.value = 'anything';
+    container.querySelector<HTMLButtonElement>('#decode-run-btn')!.click();
+    await flush();
+    return container.querySelector('#decode-tree')!.textContent ?? '';
+  }
+
+  it('returns an explorer url for a known chain id supplied as the string form settings actually store', async () => {
+    const { dx } = stubChainDx('1');
+    const { container, cleanup } = mount(dx);
+    const text = await runProbe(container);
+    expect(text).toContain('etherscan.io');
+    expect(text).toContain('0xabc');
+    cleanup();
+  });
+
+  it('returns null (rendered as "none") for an unset chain id', async () => {
+    const { dx } = stubChainDx(undefined);
+    const { container, cleanup } = mount(dx);
+    const text = await runProbe(container);
+    expect(text).toContain('none');
+    cleanup();
+  });
+
+  it('returns null (rendered as "none") for a chain id the table does not contain', async () => {
+    const { dx } = stubChainDx(999999);
+    const { container, cleanup } = mount(dx);
+    const text = await runProbe(container);
+    expect(text).toContain('none');
+    cleanup();
+  });
+
+  it('follows a chain change WITHOUT a remount — the same mounted instance, decoded twice', async () => {
+    const { dx, setChainId } = stubChainDx(1);
+    const { container, cleanup } = mount(dx);
+
+    const first = await runProbe(container);
+    expect(first).toContain('etherscan.io');
+    expect(first).not.toContain('sepolia');
+
+    setChainId(11155111);
+    const second = await runProbe(container);
+    expect(second).toContain('sepolia.etherscan.io');
+    expect(second).not.toBe(first);
+
+    cleanup();
+  });
+});
+
+// ── Task 2: expandable log rows, live while a decode runs ────────────────────────────────────
+
+describe('Log row expansion — the full request and response, live while a decode runs (Task 2)', () => {
+  afterEach(() => {
+    window.DxDecode!.log!.clear();
+  });
+
+  function baseEntry(overrides: Partial<LogEntry> = {}): LogEntry {
+    return {
+      timestamp: 1,
+      method: 'GET',
+      host: 'api.example.com',
+      path: '/x',
+      status: 200,
+      duration: 5,
+      attempt: 1,
+      ...overrides,
+    };
+  }
+
+  it('each summary row carries a disclosure with aria-expanded initially false and aria-controls pointing at its own detail row', () => {
+    const el = ui().renderLog([baseEntry()]);
+    const disclosure = el.querySelector<HTMLButtonElement>('.decode-log-disclosure')!;
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    const controlsId = disclosure.getAttribute('aria-controls')!;
+    expect(el.querySelector(`#${controlsId}`)).not.toBeNull();
+  });
+
+  it('clicking the disclosure reveals the detail region; clicking again hides it', () => {
+    const el = ui().renderLog([baseEntry({ url: 'https://api.example.com/x?a=1' })]);
+    const disclosure = el.querySelector<HTMLButtonElement>('.decode-log-disclosure')!;
+    const detailId = disclosure.getAttribute('aria-controls')!;
+    const detail = el.querySelector<HTMLElement>(`#${detailId}`)!;
+
+    expect(detail.hidden).toBe(true);
+    disclosure.click();
+    expect(detail.hidden).toBe(false);
+    expect(detail.textContent).toContain('https://api.example.com/x?a=1');
+    disclosure.click();
+    expect(detail.hidden).toBe(true);
+  });
+
+  it('an entry with no request body produces a detail region with one fewer row, and no stringified missing value', () => {
+    const withBody = ui().renderLogDetail(baseEntry({ url: 'https://x', requestBody: '{"a":1}' }));
+    const withoutBody = ui().renderLogDetail(baseEntry({ url: 'https://x' }));
+    const rowCount = (el: HTMLElement) => el.querySelectorAll('.decode-log-detail-field').length;
+    expect(rowCount(withoutBody)).toBe(rowCount(withBody) - 1);
+    expect(withoutBody.textContent).not.toMatch(/undefined|null/);
+  });
+
+  it('requestHeaders render as one row per header, with the redaction sentinel intact', () => {
+    const el = ui().renderLogDetail(
+      baseEntry({ requestHeaders: { Authorization: '[redacted]', Accept: 'application/json' } }),
+    );
+    const fields = Array.from(el.querySelectorAll('.decode-log-detail-field'));
+    expect(fields.length).toBe(2);
+    expect(el.textContent).toContain('Authorization');
+    expect(el.textContent).toContain('[redacted]');
+    expect(el.textContent).toContain('Accept');
+    expect(el.textContent).toContain('application/json');
+  });
+
+  it('a response body longer than LOG_BODY_PREVIEW_BYTES renders truncated with its full byte count stated, shorter than the body', () => {
+    const longBody = 'x'.repeat(5000);
+    const el = ui().renderLogDetail(baseEntry({ responseBody: longBody }));
+    const value = el.querySelector('.decode-log-detail-value')!.textContent ?? '';
+    expect(value.length).toBeLessThan(longBody.length);
+    expect(value).toContain('5000 bytes total');
+  });
+
+  it('a short response body renders in full, untruncated', () => {
+    const shortBody = 'ok';
+    const el = ui().renderLogDetail(baseEntry({ responseBody: shortBody }));
+    expect(el.querySelector('.decode-log-detail-value')!.textContent).toBe(shortBody);
+  });
+
+  it('two entries with identical timestamp, attempt and url expand independently', () => {
+    const a = baseEntry({ url: 'https://x/dup' });
+    const b = baseEntry({ url: 'https://x/dup' });
+    const el = ui().renderLog([a, b]);
+    const disclosures = Array.from(el.querySelectorAll<HTMLButtonElement>('.decode-log-disclosure'));
+    expect(disclosures.length).toBe(2);
+    disclosures[0].click();
+    expect(disclosures[0].getAttribute('aria-expanded')).toBe('true');
+    expect(disclosures[1].getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('re-rendering after a new entry arrives leaves a previously expanded row expanded', () => {
+    const { container, cleanup } = mount();
+    window.DxDecode!.log!.record(baseEntry({ path: '/one' }));
+    const disclosure = container.querySelector<HTMLButtonElement>('.decode-log-disclosure')!;
+    disclosure.click();
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+
+    window.DxDecode!.log!.record(baseEntry({ path: '/two', timestamp: 2 }));
+    const disclosuresAfter = Array.from(container.querySelectorAll<HTMLButtonElement>('.decode-log-disclosure'));
+    expect(disclosuresAfter.length).toBe(2);
+    // The first entry (path /one) was recorded first — oldest-first ordering means it's still first.
+    expect(disclosuresAfter[0].getAttribute('aria-expanded')).toBe('true');
+    expect(disclosuresAfter[1].getAttribute('aria-expanded')).toBe('false');
+    cleanup();
+  });
+
+  it('recording three entries in sequence repaints #decode-log three times — the live-update path', () => {
+    const { container, cleanup } = mount();
+    const logEl = container.querySelector('#decode-log')!;
+    const spy = vi.spyOn(logEl, 'replaceChildren');
+    for (let i = 0; i < 3; i++) {
+      window.DxDecode!.log!.record(baseEntry({ path: `/r${i}`, timestamp: i }));
+    }
+    expect(spy).toHaveBeenCalledTimes(3);
+    cleanup();
+  });
+
+  it('the Clear button still empties the table and returns the empty state', () => {
+    const { container, cleanup } = mount();
+    window.DxDecode!.log!.record(baseEntry());
+    container.querySelector<HTMLButtonElement>('#decode-log-clear-btn')!.click();
+    expect(container.querySelector('#decode-log')!.textContent).toMatch(/nothing has left this browser/i);
+    cleanup();
+  });
+});
+
+// ── Task 3: Copy as JSON and Copy as cURL ─────────────────────────────────────────────────────
+
+describe('logEntriesToJson / logEntryToCurl — pure serializers reading only the redacted entry (Task 3)', () => {
+  function entry(overrides: Partial<LogEntry> = {}): LogEntry {
+    return {
+      timestamp: 1,
+      method: 'GET',
+      host: 'api.etherscan.io',
+      path: '/api',
+      status: 200,
+      duration: 5,
+      attempt: 1,
+      ...overrides,
+    };
+  }
+
+  it('logEntriesToJson round-trips to an array of the same length, every field present', () => {
+    const entries = [entry(), entry({ path: '/api2' })];
+    const parsed = JSON.parse(ui().logEntriesToJson(entries));
+    expect(parsed.length).toBe(2);
+    expect(parsed[0].host).toBe('api.etherscan.io');
+  });
+
+  it('a redacted url survives the JSON round trip byte for byte', () => {
+    const redactedUrl = 'https://api.etherscan.io/api?module=x&apikey=[redacted]';
+    const parsed = JSON.parse(ui().logEntriesToJson([entry({ url: redactedUrl })]));
+    expect(parsed[0].url).toBe(redactedUrl);
+  });
+
+  it('Copy as JSON on an empty log produces an empty array rather than throwing', () => {
+    expect(() => ui().logEntriesToJson([])).not.toThrow();
+    expect(JSON.parse(ui().logEntriesToJson([]))).toEqual([]);
+  });
+
+  it('logEntryToCurl names the method and wraps the url in single quotes', () => {
+    const out = ui().logEntryToCurl(entry({ url: 'https://api.etherscan.io/api?module=x' }));
+    expect(out).toContain('-X GET');
+    expect(out).toContain("'https://api.etherscan.io/api?module=x'");
+  });
+
+  it("a redacted url fixture — the sentinel appears in both serializers' output", () => {
+    const redactedUrl = 'https://api.etherscan.io/api?module=x&apikey=[redacted]';
+    const e = entry({ url: redactedUrl });
+    expect(ui().logEntriesToJson([e])).toContain('[redacted]');
+    expect(ui().logEntryToCurl(e)).toContain('[redacted]');
+  });
+
+  it('a redacted Authorization header appears in both outputs, name and sentinel', () => {
+    const e = entry({ requestHeaders: { Authorization: '[redacted]' } });
+    expect(ui().logEntriesToJson([e])).toContain('Authorization');
+    expect(ui().logEntriesToJson([e])).toContain('[redacted]');
+    const curl = ui().logEntryToCurl(e);
+    expect(curl).toContain("-H 'Authorization: [redacted]'");
+  });
+
+  it('an entry with no requestHeaders produces no -H argument', () => {
+    expect(ui().logEntryToCurl(entry())).not.toContain('-H');
+  });
+
+  it('a url containing a single quote is emitted escaped, with balanced quoting', () => {
+    const out = ui().logEntryToCurl(entry({ url: "https://example.com/it's" }));
+    expect(out).toContain("https://example.com/it'\\''s");
+    // Balanced: an even number of unescaped-context single quotes framing each segment —
+    // proven concretely by round-tripping the exact escaped substring above.
+  });
+
+  it('neither serializer re-derives from anywhere else — mutating the fixture changes both outputs', () => {
+    const e = entry({ url: 'https://original' });
+    const before = { json: ui().logEntriesToJson([e]), curl: ui().logEntryToCurl(e) };
+    e.url = 'https://mutated';
+    const after = { json: ui().logEntriesToJson([e]), curl: ui().logEntryToCurl(e) };
+    expect(before.json).not.toBe(after.json);
+    expect(after.json).toContain('https://mutated');
+    expect(after.curl).toContain('https://mutated');
+  });
+});
+
+describe('Copy as JSON / Copy as cURL — button wiring (Task 3)', () => {
+  afterEach(() => {
+    window.DxDecode!.log!.clear();
+    removeClipboard();
+  });
+
+  it('#decode-tab-log contains exactly three buttons: Clear, Copy as JSON, Copy as cURL, plus the reveal field', () => {
+    const { container, cleanup } = mount();
+    const logTab = container.querySelector('#decode-tab-log')!;
+    const buttons = Array.from(logTab.querySelectorAll('button'));
+    expect(buttons.map((b) => b.textContent)).toEqual(['Clear', 'Copy as JSON', 'Copy as cURL']);
+    expect(logTab.querySelector('#decode-log-copy-reveal')).not.toBeNull();
+    cleanup();
+  });
+
+  it('both buttons route through the existing clipboard helper', async () => {
+    const writeText = installClipboard(vi.fn().mockResolvedValue(undefined));
+    const { container, cleanup } = mount();
+    window.DxDecode!.log!.record({
+      timestamp: 1,
+      method: 'GET',
+      host: 'h',
+      path: '/x',
+      status: 200,
+      duration: 1,
+      attempt: 1,
+    });
+    container.querySelector<HTMLButtonElement>('#decode-log-copy-json-btn')!.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledTimes(1);
+    container.querySelector<HTMLButtonElement>('#decode-log-copy-curl-btn')!.click();
+    await flush();
+    expect(writeText).toHaveBeenCalledTimes(2);
+    cleanup();
+    removeClipboard();
+  });
+
+  it('a clipboard failure with the Log tab active reveals the payload inside #decode-tab-log, never the Result panel field', async () => {
+    removeClipboard();
+    const { container, cleanup } = mount();
+    container.querySelector<HTMLButtonElement>('[data-tab="log"]')!.click();
+    window.DxDecode!.log!.record({
+      timestamp: 1,
+      method: 'GET',
+      host: 'h',
+      path: '/x',
+      status: 200,
+      duration: 1,
+      attempt: 1,
+    });
+    container.querySelector<HTMLButtonElement>('#decode-log-copy-json-btn')!.click();
+    await flush();
+
+    const revealed = container.querySelector<HTMLInputElement>('#decode-log-copy-reveal')!;
+    expect(revealed.value).not.toBe('');
+    expect(revealed.closest('#decode-tab-log')).not.toBeNull();
+
+    const resultReveal = container.querySelector<HTMLInputElement>('#decode-copy-reveal')!;
+    expect(resultReveal.value).toBe('');
+
+    cleanup();
+  });
+});
+
+// ── 05-05 Task 3: the composition root — real in the shipped dapp, not only in a test double ──
+
+describe('composition root — real transport, registry adapters and settingsRoute (Task 3)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  // Deliberately unseeded (test/decode-autodetect.test.ts's own D-27 negative-case selector) —
+  // signatures.ts's local table has never heard of it, so resolving it MUST reach the network.
+  const UNSEEDED_SELECTOR = '0x1509b894';
+  const UNSEEDED_CALLDATA = `${UNSEEDED_SELECTOR}${'0'.repeat(64)}`;
+
+  function stubOpenChainHit(): ReturnType<typeof vi.fn> {
+    const body = {
+      ok: true,
+      result: {
+        function: {
+          [UNSEEDED_SELECTOR]: [{ name: 'noSuchFunctionSeeded(uint256)', filtered: false, hasVerifiedContract: true }],
+        },
+        event: {},
+      },
+    };
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  async function runDecodeAndFlush(container: HTMLElement, decoderId: string, input: string): Promise<void> {
+    container.querySelector<HTMLSelectElement>('#decode-selector')!.value = decoderId;
+    container.querySelector<HTMLTextAreaElement>('#decode-textarea')!.value = input;
+    container.querySelector<HTMLButtonElement>('#decode-run-btn')!.click();
+    await flush();
+  }
+
+  it('an unknown selector resolves through the real composition root: exactly one lookup request, provenance registry — reached through init(), not a hand-built DecodeContext', async () => {
+    const fetchMock = stubOpenChainHit();
+    const { container, cleanup } = mount();
+
+    await runDecodeAndFlush(container, 'eth-calldata', UNSEEDED_CALLDATA);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const tree = container.querySelector('#decode-tree')!;
+    expect(tree.querySelector('.decode-provenance-badge')?.textContent).toBe('Registry');
+    cleanup();
+  });
+
+  it('the same mount records at least one #decode-log row for that request, with a method, host and status', async () => {
+    stubOpenChainHit();
+    const { container, cleanup } = mount();
+
+    await runDecodeAndFlush(container, 'eth-calldata', UNSEEDED_CALLDATA);
+
+    const logContainer = container.querySelector('#decode-log')!;
+    const rows = logContainer.querySelectorAll('.decode-log-summary-row');
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    expect(rows[0].textContent).toContain('GET');
+    expect(rows[0].textContent).toContain('api.openchain.xyz');
+    expect(rows[0].textContent).toContain('200');
+    cleanup();
+  });
+
+  it('a network primitive failing on every attempt: the decode still completes, the node is unresolved with lookup-unavailable wording, the Log tab shows the attempts, and nothing rejects', async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(() => Promise.reject(new Error('boom')));
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, cleanup } = mount();
+
+    let rejected = false;
+    const decodePromise = runDecodeAndFlush(container, 'eth-calldata', UNSEEDED_CALLDATA).catch(() => {
+      rejected = true;
+    });
+    // Both adapters (OpenChain then 4byte) retry up to NET_MAX_ATTEMPTS with backoff — advance
+    // generously past both sequences; advancing past completion is harmless.
+    for (let i = 0; i < 16; i++) {
+      await vi.advanceTimersByTimeAsync(5000);
+    }
+    await decodePromise;
+
+    expect(rejected).toBe(false);
+    const tree = container.querySelector('#decode-tree')!;
+    expect(tree.querySelector('.decode-provenance-badge')?.textContent).toBe('Unresolved');
+    expect(tree.textContent).toMatch(/unavailable/i);
+
+    const rows = container.querySelector('#decode-log')!.querySelectorAll('.decode-log-summary-row');
+    expect(rows.length).toBeGreaterThan(0);
+    cleanup();
+  });
+
+  // handoff §7.1's mintFromMoloch literal — same locally-seeded selector (0x2806b0af) 05-01's
+  // own eth-calldata suite already uses. Local to this describe block since decode-ui.test.ts
+  // does not otherwise need a decodable eth-calldata vector.
+  const LOCAL_SELECTOR_CALLDATA =
+    '0x2806b0af' +
+    '0000000000000000000000005e58ba0e06ed0f5558f83be732a4b899a674053e' +
+    '0000000000000000000000000000000000000000000000000de0b6b3a7640000';
+
+  it('with no settings at all, a locally-known selector still decodes with provenance local and issues NO request', async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const { container, cleanup } = mount({});
+
+    await runDecodeAndFlush(container, 'eth-calldata', LOCAL_SELECTOR_CALLDATA);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const tree = container.querySelector('#decode-tree')!;
+    expect(tree.querySelector('.decode-provenance-badge')?.textContent).toBe('Local');
+    cleanup();
+  });
+
+  // Each test below registers its OWN probe id — the registry (window.DxDecode.registry) is
+  // loaded once for the whole file (beforeAll) and register() no-ops on a duplicate id, so a
+  // shared id across tests would silently keep the FIRST test's closure and never call the
+  // later ones' decode functions.
+  it("the DecodeContext the mounted service builds carries a transport, a signatures and a settingsRoute — asserted through a decoder double, not by inspecting ui.ts's internals", async () => {
+    const probeId = 'composition-probe-05-05-ctx';
+    let capturedCtx: DecodeContext | undefined;
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'composition probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        capturedCtx = ctx;
+        return { node: { label: 'probe' } };
+      },
+    });
+
+    const dx = { getManifests: () => [{ id: 'settings', route: '/tools/settings' }] };
+    const { container, cleanup } = mount(dx);
+    await runDecodeAndFlush(container, probeId, 'anything');
+
+    expect(capturedCtx?.transport).toBeDefined();
+    expect(capturedCtx?.signatures).toBeDefined();
+    expect(capturedCtx?.settingsRoute).toBe('/tools/settings');
+    cleanup();
+  });
+
+  it('settingsRoute is absent (never throws) for a stub host with no settings dapp', async () => {
+    const probeId = 'composition-probe-05-05-noroute';
+    let capturedCtx: DecodeContext | undefined;
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'composition probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        capturedCtx = ctx;
+        return { node: { label: 'probe' } };
+      },
+    });
+
+    const { container, cleanup } = mount({});
+    await expect(runDecodeAndFlush(container, probeId, 'anything')).resolves.not.toThrow();
+
+    expect(capturedCtx?.settingsRoute).toBeUndefined();
+    cleanup();
+  });
+
+  it('the transport is constructed ONCE per mount, not once per decode — two decodes in one mount observe the SAME transport instance', async () => {
+    const probeId = 'composition-probe-05-05-once';
+    const refs: (TransportPort | undefined)[] = [];
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'composition probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        refs.push(ctx.transport);
+        return { node: { label: 'probe' } };
+      },
+    });
+
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId, 'first');
+    await runDecodeAndFlush(container, probeId, 'second');
+
+    expect(refs).toHaveLength(2);
+    expect(refs[0]).toBeDefined();
+    expect(refs[0]).toBe(refs[1]);
+    cleanup();
+  });
+
+  it('the one shared transport instance actually enforces one token bucket: a fourth rapid lookup is deferred behind the first three', async () => {
+    const probeId = 'composition-probe-05-05-bucket';
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    let capturedTransport: TransportPort | undefined;
+    window.DxDecode!.registry!.register({
+      id: probeId,
+      label: 'composition probe',
+      settings: [],
+      canDecode: () => 0,
+      decode: async (_input, ctx) => {
+        capturedTransport = ctx.transport;
+        return { node: { label: 'probe' } };
+      },
+    });
+
+    // Prime with a REAL-timer decode first — flush() uses setTimeout internally, and fake
+    // timers must not be active yet or that setTimeout never advances on its own.
+    const { container, cleanup } = mount();
+    await runDecodeAndFlush(container, probeId, 'anything');
+    expect(capturedTransport).toBeDefined();
+
+    vi.useFakeTimers();
+
+    // Four rapid lookups against the SAME captured transport instance, none awaited between —
+    // the default rate is 3/sec (etherscanRps's own documented default, D-08/D-12), so the
+    // fourth must be deferred behind the token bucket rather than firing immediately.
+    for (let i = 0; i < 4; i++) {
+      capturedTransport!.request({ method: 'GET', url: `https://example.test/burst-${i}`, dedupe: false });
+    }
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fetchMock.mock.calls.length).toBe(3);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(fetchMock.mock.calls.length).toBe(4);
+
+    cleanup();
   });
 });

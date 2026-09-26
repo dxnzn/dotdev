@@ -33,8 +33,9 @@ in a browser that sends nothing to DNZN.
 - **Bring-your-own credentials**: the user supplies their own Etherscan key and RPC URL. Decoders
   declare which settings they need and degrade gracefully — never crash — when they are absent.
 
-- **Payload budget**: target < 60 KB uncompressed JS for the decode dapp including all first-wave
-  decoders. Network work only on demand.
+- **Payload budget**: target < 128 KB uncompressed and < 32 KB gzipped JS for the decode dapp
+  including all first-wave decoders — redefined in Phase 5 from the original `< 60 KB uncompressed` target, now superseded (see `.planning/REQUIREMENTS.md`'s DEC-16 for the full rationale).
+  Network work only on demand.
 
 - **DxKit as it stands**: no upstream DxKit change may block this milestone. Gaps become `tmp/`
   feature requests.
@@ -42,9 +43,9 @@ in a browser that sends nothing to DNZN.
 - **Hash routing**: query strings arrive inside `e.detail.path` on `dx:mount`; URL updates use
   `history.replaceState` and must not trigger a route change.
 
-- **Testing**: vitest is configured and the full suite is green (775 tests across 19 files as of
-  Phase 4); pure codec and recursion logic must be unit-tested offline against the handoff's real
-  mainnet vectors with a stubbed ABI source.
+- **Testing**: vitest is configured and the full suite is green; pure codec and recursion logic
+  must be unit-tested offline against the handoff's real mainnet vectors with a stubbed ABI
+  source.
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->
