@@ -649,6 +649,20 @@ async function netRequest(instance: NetTransportInstance, req: HttpRequest): Pro
 
         await instance.bucket.take();
         const release = await instance.gate.acquire();
+        // Re-checked AFTER both queue waits, and this is the only place it can be caught: the
+        // loop-top check above runs BEFORE them, and the attempt's own 'abort' listener is armed
+        // AFTER them — adding a listener to an already-aborted signal never replays the event. A
+        // shared abort landing in that window (every attached caller detaching, which is what a
+        // cleared or superseded decode does to a queue of ABI lookups) therefore reached `fetch`
+        // with a fresh, un-aborted attempt signal: a request nobody wanted still went out, spending
+        // a token and holding a concurrency slot the next decode was waiting for, and writing an
+        // orphan Log entry. The slot is released explicitly, since the `finally` that normally does
+        // it belongs to the try block below.
+        if (controller.signal.aborted) {
+          release();
+          result = { ...netAbortedResponse('aborted while queued'), attempts: attempt };
+          break;
+        }
         const startedAt = Date.now();
         let willRetry = false;
         let waitMs = 0;

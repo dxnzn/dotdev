@@ -294,6 +294,67 @@ describe('transport — bounded concurrency (NET-02)', () => {
   });
 });
 
+describe('transport — a shared abort taken while queued (CR, PR #1 review)', () => {
+  // The loop-top abort check runs BEFORE bucket.take()/gate.acquire(), and the attempt's own abort
+  // listener is armed AFTER them — and arming a listener on an already-aborted signal never replays
+  // the event. So an abort landing in that window used to be invisible: the request went out with a
+  // fresh, un-aborted attempt signal, spent a token, held a concurrency slot, and wrote a Log entry
+  // for work every caller had detached from. Clearing or superseding a decode does exactly that to
+  // a queue of ABI lookups.
+  it('never reaches fetch, and writes no log entry, for a request aborted while waiting on the bucket', async () => {
+    vi.useFakeTimers();
+    const { log, entries } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log, rps: 1 });
+    const first = transport.request({ method: 'GET', url: 'https://api.example.test/queued/0' });
+    await vi.advanceTimersByTimeAsync(10);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const controller = new AbortController();
+    const queued = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/queued/1',
+      signal: controller.signal,
+    });
+    // The only attached caller detaches while the attempt sits in bucket.take().
+    controller.abort();
+    const aborted = await queued;
+    expect(aborted.ok).toBe(false);
+
+    // Tokens arrive. Nothing more may go out.
+    await vi.advanceTimersByTimeAsync(3000);
+    await first;
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(entries.filter((entry) => entry.path.includes('/queued/1'))).toHaveLength(0);
+  });
+
+  it('a request whose caller stays attached still goes out after the same wait', async () => {
+    vi.useFakeTimers();
+    const { log } = makeLog();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response('{}', { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const transport = transportModule().createTransport({ log, rps: 1 });
+    const first = transport.request({ method: 'GET', url: 'https://api.example.test/kept/0' });
+    await vi.advanceTimersByTimeAsync(10);
+
+    const controller = new AbortController();
+    const queued = transport.request({
+      method: 'GET',
+      url: 'https://api.example.test/kept/1',
+      signal: controller.signal,
+    });
+
+    await vi.advanceTimersByTimeAsync(3000);
+    await Promise.all([first, queued]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('transport — GET dedupe (NET-02)', () => {
   it('two identical in-flight GETs share one underlying request; a third after settle makes a fresh one', async () => {
     const { log } = makeLog();
@@ -448,7 +509,12 @@ describe('transport — dedupe/abort attachment semantics (NET-02, NET-03)', () 
 
     expect(resultA.ok).toBe(false);
     expect(resultB.ok).toBe(true);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    // ONE call, B's own — not two. A's attempt was still waiting on bucket.take() when its sole
+    // caller detached, and the queued-abort check added for PR #1's review now catches exactly that
+    // window, so A's request is never issued at all. CR-01's property is unchanged and is what the
+    // two assertions above state: B started fresh instead of attaching to the dying entry.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toContain('/cr-01-same-turn');
   });
 });
 
