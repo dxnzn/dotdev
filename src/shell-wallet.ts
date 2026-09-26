@@ -503,6 +503,22 @@
     return () => trigger.removeEventListener('click', onClick);
   }
 
+  // Every piece of feedback this menu paints — the COPY flash, describeError's sentences, the
+  // revealed full-address field — lands INSIDE the menu, and shell.ts closes all three header
+  // dropdowns from a document-level click listener. Without this, a row's own click closed the
+  // menu that was about to report back: the confirmation and the error text were written into a
+  // node already at opacity 0, and the clear-on-open in wireTrigger then wiped them before the
+  // next open could show them. Registered on the menu wrapper rather than on each row, because
+  // render() rebuilds the rows and the wrapper survives. The Settings row still closes the menu —
+  // it does that itself, deliberately, on its way to the route.
+  function wireMenuContainment() {
+    const menu = document.getElementById('wallet-menu');
+    if (!menu) return () => undefined;
+    const onClick = (e) => e.stopPropagation();
+    menu.addEventListener('click', onClick);
+    return () => menu.removeEventListener('click', onClick);
+  }
+
   function init(dx) {
     if (!dx) return () => undefined;
 
@@ -551,6 +567,7 @@
     }
 
     unsubscribers.push(wireTrigger(dx));
+    unsubscribers.push(wireMenuContainment());
 
     // Header chrome is wired once and never unmounted (src/shell.ts's refreshNavMenu comment
     // spells out why), so this closure has no production caller today. It exists because

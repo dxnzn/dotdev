@@ -1877,3 +1877,64 @@ describe.skipIf(!hasVendoredWallet)(
     });
   },
 );
+
+// shell.ts closes all three header dropdowns from a document-level click listener, and every piece
+// of feedback this menu paints lands inside the menu. These cases boot the REAL shell.js alongside
+// the wallet module, because a fixture without that listener cannot show the failure at all.
+describe('shell-wallet — the menu stays open while its own rows report back', () => {
+  beforeEach(() => {
+    installFakeLocalStorage();
+  });
+
+  afterEach(() => {
+    removeClipboard();
+    window.localStorage.clear();
+    delete (window as any).ethereum;
+    delete (window as any).__DXKIT__;
+  });
+
+  function isOpen() {
+    return document.getElementById('wallet-panel')!.classList.contains('open');
+  }
+
+  it('a copy click leaves the dropdown open, so the COPIED flash is visible where it is painted', async () => {
+    installFakeEthereum({ accounts: [VALID_ADDRESS] });
+    installClipboard(vi.fn(() => Promise.resolve()));
+    bootHeader();
+    await flushMicrotasks();
+    document.getElementById('wallet-btn')!.click();
+    expect(isOpen()).toBe(true);
+
+    const copy = document.querySelector('.wallet-address-row .wallet-copy') as HTMLButtonElement;
+    copy.click();
+    await flushMicrotasks();
+
+    expect(isOpen()).toBe(true);
+    expect(copy.classList.contains('copied')).toBe(true);
+  });
+
+  it('a rejected connect leaves the dropdown open, so its own error sentence can be read', async () => {
+    installFakeEthereum();
+    const wallet = makeWalletStub({ connect: vi.fn(() => Promise.reject({ code: 4100 })) });
+    bootHeader([SETTINGS_MANIFEST], wallet);
+    await flushMicrotasks();
+    document.getElementById('wallet-btn')!.click();
+
+    menuButton(CONNECT_ROW)!.click();
+    await flushMicrotasks();
+
+    expect(isOpen()).toBe(true);
+    expect(messageText().length).toBeGreaterThan(0);
+  });
+
+  it('the Settings row still closes the dropdown — it does that itself, on its way to the route', () => {
+    installFakeEthereum();
+    const { dx } = bootHeader();
+    document.getElementById('wallet-btn')!.click();
+
+    menuButton(/^settings/i)!.click();
+
+    expect(isOpen()).toBe(false);
+    expect(dx.router.navigate).toHaveBeenCalledWith('/settings');
+  });
+});
