@@ -714,7 +714,12 @@ async function ethDecode(input: string, ctx: DecodeContext): Promise<DecodeOutpu
   const settingsNote = ethMissingSettingsNote(ctx.settings, ctx);
   const output = await ethDecodeCore(input, ctx);
   if (settingsNote) {
-    output.node.warning = settingsNote;
+    // APPENDED, never assigned over: annSeedBudget already writes the root's bounded-decoding
+    // warning ("this tree exceeded the recursion budget"), and an RPC-only or explorer-only
+    // configuration — a normal way to run this dapp — is exactly when both warnings are true at
+    // once. Overwriting left a 5,000-call payload with every nested call undecoded and nothing left
+    // on the tree saying that recursion had been skipped.
+    output.node.warning = output.node.warning ? `${output.node.warning} ${settingsNote}` : settingsNote;
     // ROADMAP success criterion 5 says the UI "links to /settings" — putting the route inside
     // `warning` would render as inert text (ui.ts draws it via textContent). `link`/`linkKind`
     // are the two members 05-01 Task 0 added for exactly this; renderNode draws the anchor.

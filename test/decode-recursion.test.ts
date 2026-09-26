@@ -556,6 +556,29 @@ describe('the resolver outcome union — unavailable vs. a clean miss (T-06-01 s
 });
 
 describe('the node allowance is seeded from a count of the root (Round 2 HIGH)', () => {
+  // DEC-13's missing-settings sentence used to be ASSIGNED to the root, over whatever was already
+  // there — and annSeedBudget's bound warning is written to that same field. An RPC-only or
+  // explorer-only configuration is a normal way to run this dapp, so both are routinely true at
+  // once: the payload below lost the only statement on the tree that recursion had been skipped.
+  it('a bounded root keeps its bound warning when the missing-settings sentence is added', async () => {
+    // multicall(bytes[]) with more elements than the node budget allows.
+    const count = 5001;
+    const head = (32).toString(16).padStart(64, '0');
+    const len = count.toString(16).padStart(64, '0');
+    // Element offsets are relative to the first word AFTER the array length: the offset table is
+    // `count` words, then one length word per (empty) element.
+    const offsets = Array.from({ length: count }, (_, i) => ((count + i) * 32).toString(16).padStart(64, '0'));
+    const elements = Array.from({ length: count }, () => '0'.repeat(64));
+    const payload = `0xac9650d8${head}${len}${offsets.join('')}${elements.join('')}`;
+
+    const output = await decoder().decode(payload, makeCtx());
+
+    expect(output.node.warning).toContain('nested decode stopped');
+    expect(output.node.warning).toContain('nodes bound reached');
+    expect(output.node.warning).toContain('etherscanApiKey');
+    expect(output.node.warning).toContain('rpcUrl');
+  });
+
   it('a root whose own node count already meets ANN_MAX_NODES carries the bound warning on the ROOT and attempts no nested decode', async () => {
     // 5,000 leaves + the root itself = 5,001 nodes, at/over the 5,000 budget.
     const bigRoot: DecodeNode = {
