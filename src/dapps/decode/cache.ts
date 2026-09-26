@@ -166,7 +166,10 @@ type CchReadResult =
   | { hit: true; kind: 'verified'; name: string; abi: AbiItem[] }
   | { hit: true; kind: 'negative' };
 
-type CchWriteValue = { tier: 'both'; name: string; abi: AbiItem[] } | { tier: 'negative' };
+// 'both' is the durable positive answer, 'memory' the same answer held only for this session (a
+// proxy's merged ABI — see abi-source.ts's own comment at the write site), 'negative' a contract
+// asked about and genuinely not verified.
+type CchWriteValue = { tier: 'both' | 'memory'; name: string; abi: AbiItem[] } | { tier: 'negative' };
 
 interface CchCacheInstance {
   read(chainId: string, address: string): CchReadResult;
@@ -356,6 +359,9 @@ function cchCreateCache(): CchCacheInstance {
     }
 
     memory.set(key, { ts, negative: false, name: value.name, abi: value.abi });
+    // 'memory' stops here: an answer that is true now and need not be true next session. It still
+    // serves every later lookup in this mount, which is what the memory tier is for.
+    if (value.tier === 'memory') return;
     cchWritePersisted(key, { ts, name: value.name, abi: value.abi });
   }
 

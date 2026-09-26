@@ -58,7 +58,7 @@ type CchReadResult =
   | { hit: true; kind: 'verified'; name: string; abi: AbiItem[] }
   | { hit: true; kind: 'negative' };
 
-type CchWriteValue = { tier: 'both'; name: string; abi: AbiItem[] } | { tier: 'negative' };
+type CchWriteValue = { tier: 'both' | 'memory'; name: string; abi: AbiItem[] } | { tier: 'negative' };
 
 interface CchCacheInstance {
   read(chainId: string, address: string): CchReadResult;
@@ -114,6 +114,28 @@ describe('a miss then a memory hit with no persistence read; a persisted documen
     const spy = vi.spyOn(window.localStorage, 'getItem');
     cacheB.read('1', ADDR1);
     expect(spy).not.toHaveBeenCalled();
+  });
+});
+
+// The third write tier: a positive answer that is true now and need not be true next session — a
+// proxy's merged implementation ABI, whose implementation is exactly what an upgrade replaces.
+describe("the 'memory' tier — a positive answer that must not outlive the session", () => {
+  it('serves later reads from memory without ever touching persistence', () => {
+    const cache = cacheModule().createCache();
+    cache.write('1', ADDR1, { tier: 'memory', name: 'Proxy → Impl', abi: [ABI_ITEM] });
+
+    expect(cache.read('1', ADDR1)).toEqual({ hit: true, kind: 'verified', name: 'Proxy → Impl', abi: [ABI_ITEM] });
+    expect(window.localStorage.getItem(entryKey('1', ADDR1))).toBeNull();
+  });
+
+  it('is invisible to a fresh cache instance, unlike a both-tier write', () => {
+    const cacheA = cacheModule().createCache();
+    cacheA.write('1', ADDR1, { tier: 'memory', name: 'Proxy → Impl', abi: [ABI_ITEM] });
+    cacheA.write('1', ADDR2, { tier: 'both', name: 'Plain', abi: [ABI_ITEM] });
+
+    const cacheB = cacheModule().createCache();
+    expect(cacheB.read('1', ADDR1)).toEqual({ hit: false });
+    expect(cacheB.read('1', ADDR2)).toMatchObject({ hit: true, kind: 'verified', name: 'Plain' });
   });
 });
 

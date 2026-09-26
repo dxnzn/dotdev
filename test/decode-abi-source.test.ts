@@ -476,6 +476,71 @@ describe('the proxy follow (D-11, NET-09) — bounded to exactly one further lev
     expect(result).not.toBeNull();
   });
 
+  // The COMMON proxy shape, and the one the structural filter used to refuse before the follow was
+  // ever considered: a minimal proxy verifies with a constructor and a fallback and nothing else,
+  // every callable function living on the implementation. asrcValidFunctionItems returns null for
+  // that ABI, and returning there made NET-09 unreachable for exactly the contracts it is for.
+  it('a proxy whose own ABI exposes no function entries still follows to its implementation', async () => {
+    const bareProxyAbi = JSON.stringify([
+      { type: 'constructor', inputs: [{ name: '_logic', type: 'address' }] },
+      { type: 'fallback', stateMutability: 'payable' },
+      { type: 'receive', stateMutability: 'payable' },
+    ]);
+    const { transport, requests } = stubTransportSequence([
+      () => okResponse(proxyBody(IMPL_MIXED, { ABI: bareProxyAbi })),
+      () => okResponse(implBody()),
+    ]);
+    const adapter = abiSource().createEtherscanAbiSource(
+      transport,
+      stubSettings({ etherscanApiKey: API_KEY, chainId: 1 }),
+    );
+
+    const result = await adapter.getAbi(PROXY);
+
+    expect(requests).toHaveLength(2);
+    expect(requestAddressParam(requests[1])).toBe(IMPL_LOWER);
+    expect(result?.name).toBe('ProxyContract → ImplContract');
+    expect(result?.abi.map((item) => item.name)).toEqual(['onlyOnImpl']);
+  });
+
+  it('a non-proxy contract with no usable function entry is still the never-cached ambiguous outcome', async () => {
+    const bareAbi = JSON.stringify([{ type: 'fallback', stateMutability: 'payable' }]);
+    const { transport, requests } = stubTransport(() => okResponse(sourceCodeBody({ ABI: bareAbi })));
+    const adapter = abiSource().createEtherscanAbiSource(
+      transport,
+      stubSettings({ etherscanApiKey: API_KEY, chainId: 1 }),
+    );
+
+    expect(await adapter.getAbi(TARGET)).toBeNull();
+    expect(window.localStorage.getItem(`dxdecode:abi:1:${TARGET}`)).toBeNull();
+    // Asked again rather than remembered — an ambiguous outcome is not an answer about the contract.
+    await adapter.getAbi(TARGET);
+    expect(requests.length).toBeGreaterThan(1);
+  });
+
+  // NET-08's "a verified ABI does not change" is false for the one ABI that is composed from an
+  // implementation: that is exactly what an upgrade replaces. A 7-day persisted merge would decode
+  // against the previous implementation for a week and badge it 'verified'.
+  it('a merged proxy ABI is held for this session only — never written to the persistent tier', async () => {
+    const { transport, requests } = stubTransportSequence([
+      () => okResponse(proxyBody(IMPL_MIXED)),
+      () => okResponse(implBody()),
+    ]);
+    const adapter = abiSource().createEtherscanAbiSource(
+      transport,
+      stubSettings({ etherscanApiKey: API_KEY, chainId: 1 }),
+    );
+
+    const first = await adapter.getAbi(PROXY);
+    expect(first?.name).toBe('ProxyContract → ImplContract');
+    expect(window.localStorage.getItem(`dxdecode:abi:1:${PROXY}`)).toBeNull();
+
+    // The memory tier still serves it, so a recursive decode does not re-ask per node.
+    const second = await adapter.getAbi(PROXY);
+    expect(second).toEqual(first);
+    expect(requests).toHaveLength(2);
+  });
+
   it('the proxy follow carries the same signal as the outer lookup', async () => {
     const { transport, requests } = stubTransportSequence([
       () => okResponse(proxyBody(IMPL_MIXED)),

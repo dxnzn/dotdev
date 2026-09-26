@@ -143,7 +143,13 @@ function asrcResolveChainId(
 // a truncated response, a parse or structural failure): D-13/NET-08 forbid caching the latter at
 // all, and collapsing the two would mean re-fetching every ordinary wallet address on every
 // decode (Plan 06's name walk looks up every distinct address in the tree).
-type AsrcOutcome = { kind: 'verified'; name: string; abi: AbiItem[] } | { kind: 'not-verified' } | { kind: 'error' };
+// `proxied` marks a verified answer whose ABI came (wholly or partly) from a followed
+// implementation — the one verified result that is NOT durable, since the implementation behind a
+// proxy is exactly the thing an upgrade replaces. asrcCachedLookup is its only reader.
+type AsrcOutcome =
+  | { kind: 'verified'; name: string; abi: AbiItem[]; proxied?: true }
+  | { kind: 'not-verified' }
+  | { kind: 'error' };
 
 // The one recursive lookup body — `asrcCachedLookup`'s outer call passes followDepth 0; a proxy
 // follow (below) calls it again with followDepth 1 and refuses to follow a second time, bounding
@@ -216,9 +222,14 @@ async function asrcLookupOutcome(
 
   const validItems = asrcValidFunctionItems(parsedAbi);
   // No function item survived structural filtering — ambiguous rather than a confirmed negative
-  // (the contract IS verified; it may simply expose no functions this decoder can use), so this
-  // is kept in the 'error'/never-cache bucket rather than risked as a false negative.
-  if (!validItems) return { kind: 'error' };
+  // (the contract IS verified; it may simply expose no functions this decoder can use), so this is
+  // kept in the 'error'/never-cache bucket rather than risked as a false negative. NOT returned
+  // here, though: that is the ORDINARY shape of a proxy — a constructor, a fallback, maybe a
+  // receive, and every callable function living on the implementation — and returning before the
+  // Proxy === '1' branch below refused the follow for exactly the contracts NET-09 exists to serve.
+  // The decision is deferred to the end of that branch, where a merged implementation ABI may have
+  // arrived in the meantime.
+  const ownItems = validItems ?? [];
 
   const contractName = typeof record.ContractName === 'string' ? record.ContractName : '';
 
@@ -242,10 +253,10 @@ async function asrcLookupOutcome(
         // returned array in order and returns the first keccak match, so putting the
         // implementation's own entries ahead of the proxy's own makes them win a selector
         // collision without a second, differently-shaped merge function.
-        const mergedAbi = [...implOutcome.abi, ...validItems];
+        const mergedAbi = [...implOutcome.abi, ...ownItems];
         const composedName =
           implOutcome.name.length > 0 ? `${contractName} ${ASRC_ARROW} ${implOutcome.name}` : contractName;
-        return { kind: 'verified', name: composedName, abi: mergedAbi };
+        return { kind: 'verified', name: composedName, abi: mergedAbi, proxied: true };
       }
       // CR-02: 'error' and 'not-verified' are NOT the same fall-through. 'error' means the
       // implementation sub-lookup could not be completed — a transport failure, an in-body
@@ -265,7 +276,12 @@ async function asrcLookupOutcome(
     }
   }
 
-  return { kind: 'verified', name: contractName, abi: validItems };
+  // The deferred decision from the filter above: a contract with no usable function entry of its own
+  // and no implementation to borrow one from has nothing this decoder can decode with, so it stays
+  // in the never-cached 'error' bucket exactly as before.
+  if (ownItems.length === 0) return { kind: 'error' };
+
+  return { kind: 'verified', name: contractName, abi: ownItems };
 }
 
 // 06-04/NET-08: the cache wrapper around the OUTER (followDepth 0) lookup only — a proxy's
@@ -309,7 +325,15 @@ async function asrcCachedLookup(
 
   if (cache && cacheAddress) {
     if (outcome.kind === 'verified') {
-      cache.write(String(effectiveChainId), cacheAddress, { tier: 'both', name: outcome.name, abi: outcome.abi });
+      // NET-08's "a verified ABI does not change" holds for a contract's own ABI and NOT for a
+      // proxy's: the implementation it delegates to is precisely what an upgrade replaces, so a
+      // merged answer persisted under the PROXY's address for the full TTL would keep decoding
+      // against the previous implementation for a week — badged 'verified', and wrong about
+      // argument layout wherever a selector survived the upgrade with a different signature.
+      // Memory tier only: still one lookup per address per mount, never an answer that outlives
+      // the session that learned it.
+      const tier = outcome.proxied ? 'memory' : 'both';
+      cache.write(String(effectiveChainId), cacheAddress, { tier, name: outcome.name, abi: outcome.abi });
     } else if (outcome.kind === 'not-verified') {
       cache.write(String(effectiveChainId), cacheAddress, { tier: 'negative' });
     }
@@ -333,7 +357,7 @@ interface AsrcCacheInstance {
   write(
     chainId: string,
     address: string,
-    value: { tier: 'both'; name: string; abi: AbiItem[] } | { tier: 'negative' },
+    value: { tier: 'both' | 'memory'; name: string; abi: AbiItem[] } | { tier: 'negative' },
   ): void;
 }
 
