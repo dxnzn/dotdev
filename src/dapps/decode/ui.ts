@@ -300,6 +300,65 @@ function renderHexDump(bytes: Uint8Array): HTMLElement {
   return table;
 }
 
+// TXT-05's second Raw renderer — modelled on renderHexDump immediately above, one word (or the
+// leading selector, or a leftover partial word) per row. Decides from the byte length alone
+// whether the payload leads with a four-byte selector, using the SAME predicate the decoder
+// that selects this view uses for the identical decision — see that file's matching comment.
+// The >= 36 floor is load-bearing and is the fix for a real defect: with a lower floor, a
+// manually-selected 4-byte paste rendered a selector node in the Result tab and a partial-word
+// row here, two views of the same bytes disagreeing about what they are. WORD_LEN/SELECTOR_LEN
+// are declared inside this function, not at module top level — a registered decoder file
+// already owns identical top-level names in this same compiled program (tsconfig.decode.json),
+// and this directory has no imports to share a single declaration through.
+//
+// This renderer emits no annotations: the shape hypotheses live in the decoder that produced
+// the bytes and appear in the Result tree, never here. Every cell is written with textContent,
+// never markup, matching this file's own header rule — and unlike renderHexDump, this table has
+// no third, ASCII cell, so bytes spelling markup appear here as hex digits and nothing else.
+function renderWordTable(bytes: Uint8Array): HTMLElement {
+  const WORD_LEN = 32;
+  const SELECTOR_LEN = 4;
+  const hasSelector = bytes.length >= SELECTOR_LEN + WORD_LEN && (bytes.length - SELECTOR_LEN) % WORD_LEN === 0;
+
+  const table = document.createElement('table');
+  table.className = 'decode-wordtable';
+  const tbody = document.createElement('tbody');
+
+  function appendRow(offset: number, rowBytes: Uint8Array) {
+    const tr = document.createElement('tr');
+
+    const offsetCell = document.createElement('td');
+    offsetCell.className = 'decode-wordtable-offset';
+    offsetCell.textContent = offset.toString(16).padStart(8, '0');
+    tr.append(offsetCell);
+
+    const wordCell = document.createElement('td');
+    wordCell.className = 'decode-wordtable-word';
+    wordCell.textContent = Array.from(rowBytes, (b) => b.toString(16).padStart(2, '0')).join('');
+    tr.append(wordCell);
+
+    tbody.append(tr);
+  }
+
+  const argStart = hasSelector ? SELECTOR_LEN : 0;
+  if (hasSelector) {
+    appendRow(0, bytes.slice(0, SELECTOR_LEN));
+  }
+
+  let offset = argStart;
+  while (offset + WORD_LEN <= bytes.length) {
+    appendRow(offset, bytes.slice(offset, offset + WORD_LEN));
+    offset += WORD_LEN;
+  }
+  if (offset < bytes.length) {
+    // A partial trailing word — reported as its own row rather than dropped.
+    appendRow(offset, bytes.slice(offset));
+  }
+
+  table.append(tbody);
+  return table;
+}
+
 function renderRawEmpty(): HTMLElement {
   const p = document.createElement('p');
   p.className = 'decode-empty-message';
@@ -309,11 +368,13 @@ function renderRawEmpty(): HTMLElement {
 
 // D-16: which Raw renderer runs is the decoder's choice, read from rawView — never inferred by
 // parsing the root node's own `raw` string, which would make this renderer decoder-specific.
-// Only one entry exists this phase; an unrecognised rawView falls back to it rather than
-// rendering nothing, which is what makes Phase 4's second entry (`abi-words`, TXT-05) a
-// registration rather than a rewrite.
+// Two entries exist as of Phase 4 — an unrecognised rawView still falls back to the first,
+// which is what makes adding a renderer here a registration rather than a rewrite. A key in
+// this table must never equal a registered decoder's own id — the existing 'hex-dump' / 'hex'
+// pair is the worked example: the two are deliberately different strings.
 const RAW_VIEW_DISPATCH: Record<string, (bytes: Uint8Array) => HTMLElement> = {
   'hex-dump': renderHexDump,
+  'word-table': renderWordTable,
 };
 
 function renderRaw(rawBytes: Uint8Array | null, rawView: string): HTMLElement {

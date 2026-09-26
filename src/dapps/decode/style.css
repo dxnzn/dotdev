@@ -102,6 +102,15 @@
 .decode-hexdump-bytes { color: var(--text); }
 .decode-hexdump-ascii { color: var(--text-dim); }
 
+/* Raw — the word table (TXT-05) */
+.decode-wordtable { font-family: var(--font-mono); font-size: 0.8rem; border-collapse: collapse; width: 100%; }
+.decode-wordtable td { padding: 0.1rem 0.6rem 0.1rem 0; vertical-align: top; }
+.decode-wordtable-offset { color: var(--text-muted); white-space: pre; }
+/* Deliberately NOT white-space: pre, unlike the hexdump rule directly above: a 32-byte word is
+   66 characters with its 0x-equivalent width, and pre would refuse to wrap it, pushing this
+   panel wider than the layout at every width. Wrap inside the cell instead. */
+.decode-wordtable-word { color: var(--text); white-space: normal; overflow-wrap: anywhere; }
+
 /* Log — the live entry table (D-17, D-18) */
 .decode-log-controls { display: flex; justify-content: flex-end; margin-bottom: 0.6rem; }
 .decode-log-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; }

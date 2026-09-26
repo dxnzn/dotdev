@@ -11,6 +11,10 @@
     "dapps/decode/codecs.js",
     "dapps/decode/core.js",
     "dapps/decode/decoders.js",
+    "dapps/decode/decoders-jwt.js",
+    "dapps/decode/decoders-abi-words.js",
+    "dapps/decode/decoders-url.js",
+    "dapps/decode/decoders-base64.js",
     "dapps/decode/ui.js"
   ],
   "requires": { "plugins": ["settings"] },

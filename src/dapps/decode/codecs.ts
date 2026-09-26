@@ -174,9 +174,22 @@ function base64EncodeUrl(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// 04-03: the base64url segment split, whitespace-tolerant, no throw path — this file's own
+// stated invariant (the absence of a throw path) applied to one more primitive. Lives here,
+// not in decoders-jwt.ts, per D-04: a whitespace-tolerant split over an alphabet this file
+// already owns is a codec primitive, whereas a decoder's own interpretation of what it finds
+// belongs to the decoder file (the plan's own <review_disposition> rejects moving this the
+// other way for exactly that reason). A JWT pasted out of a terminal or a header dump
+// routinely arrives wrapped, so whitespace tolerance here — not just alphabet tolerance in
+// base64Decode — is what makes a wrapped token decodable at all.
+function base64SplitSegments(input: string): string[] {
+  return stripAsciiWhitespace(input).split('.');
+}
+
 const Base64 = {
   decode: base64Decode,
   encodeUrl: base64EncodeUrl,
+  splitSegments: base64SplitSegments,
 };
 
 // ── Utf8 ──────────────────────────────────────────────────────────────────────────────────
@@ -205,4 +218,24 @@ const Utf8 = {
   },
 };
 
-window.DxDecode.codecs = { Hex, Base64, Utf8 };
+// ── Percent ───────────────────────────────────────────────────────────────────────────────
+//
+// 04-02: this file's own stated invariant (the absence of a throw path) applied to one more
+// primitive. decodeURIComponent throws a URIError on a malformed escape — a bare '%', a
+// trailing '%' with no two hex digits after it, a truncated multi-byte sequence — and the
+// throw is converted at this boundary into the failure branch, so no signature here ever
+// exposes one. Unlike hexNormalize/stripAsciiWhitespace, this function strips NO whitespace:
+// a space is a meaningful character in a percent-encoded string, and removing it would be
+// exactly the silent input mutation Phase 3's prohibitions forbid — stripAsciiWhitespace
+// exists for the hex/base64 alphabets, which have no such character.
+function percentDecode(input: string): { ok: true; value: string } | { ok: false; error: string } {
+  try {
+    return { ok: true, value: decodeURIComponent(input) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+const Percent = { decode: percentDecode };
+
+window.DxDecode.codecs = { Hex, Base64, Utf8, Percent };

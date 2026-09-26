@@ -13,7 +13,7 @@ by **Denizen.** // dnzn.wei
 | `/support` | Support | Projects we support |
 | `/settings` | Settings | Ethereum credentials and every dapp's settings, in one place |
 | `/tools/cic` | CIC | Compound Interest Calculator |
-| `/tools/decode` | Decode | Decode nested calldata, base64, hex, and other encoded blobs |
+| `/tools/decode` | Decode | Decode hex, base64, URLs, JWTs and raw calldata words, on-device |
 | `/tools/tpl` | TPL | Template tool (optional, disabled by default) |
 
 ## Development

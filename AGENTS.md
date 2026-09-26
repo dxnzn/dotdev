@@ -34,13 +34,15 @@ the tree is deployed to GitHub Pages and is servable from IPFS unchanged. See
   `connect()`, so a silent read of already-granted permission has no path through it. D-01
   permits the exception — no DxKit code is modified and no second `WalletProvider` is written —
   and no other module may reach the injected provider directly.
-- `src/dapps/decode/` — a five-module dapp behind one shared namespace, `window.DxDecode` (a
+- `src/dapps/decode/` — a shared-namespace dapp behind one global, `window.DxDecode` (a
   **dapp** namespace, not a framework one — the `Dx*` prefix elsewhere means vendored DxKit,
-  this is decode's own). `core.ts` owns the ports, the `DecodeNode` result type, the decoder
-  registry and the decode service; `codecs.ts` the pure hex/base64/UTF-8 codecs; `decoders.ts`
-  the self-registering decoder adapters (one new file per decoder, per its own README's
-  "add a decoder" walkthrough); `ui.ts` the renderer and all DOM; `dapp.ts` lifecycle glue only.
-  Built to be portable into any DxKit shell (`requires.plugins: ["settings"]`,
+  this is decode's own). Its framework modules are `core.ts` (the ports, the `DecodeNode` result
+  type, the decoder registry and the decode service), `codecs.ts` (the pure hex/base64/UTF-8
+  codecs), `ui.ts` (the renderer and all DOM) and `dapp.ts` (lifecycle glue only) — plus **one
+  file per decoder**, each self-registering per the directory's own README "add a decoder"
+  walkthrough: `decoders.ts` (hex), `decoders-base64.ts`, `decoders-url.ts`, `decoders-jwt.ts`
+  and `decoders-abi-words.ts`, with a new decoder arriving as a new sibling rather than growing
+  an existing file. Built to be portable into any DxKit shell (`requires.plugins: ["settings"]`,
   `standalone: false`, no `Dnzn*`-prefixed identifier anywhere in the directory) and a source-
   scanning guard (`test/decode-portability.test.ts`) enforces that posture on every change. See
   `src/dapps/decode/README.md`.
@@ -82,11 +84,13 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   this easy to miss: the plugin and dapp entries in that block *are* globs, so a new plugin or
   dapp needs no `.gitignore` change — but only for its **entry module** (`dapp.js`, covered by
   the `src/dapps/*/dapp.js` glob). This holds for a single-module dapp like CIC or settings, but
-  the decode dapp proved it false in general: its four additional modules (`core.js`, `codecs.js`,
-  `decoders.js`, `ui.js`) needed a directory-glob line of their own,
-  `src/dapps/decode/*.js` — that pattern, not a literal per-file line, is what a future
-  multi-module dapp should follow. Two literal per-file lines also exist today for top-level
-  modules, `src/wallet-identity.js` and `src/shell-wallet.js`.
+  the decode dapp proved it false in general: its non-entry modules needed a directory-glob line
+  of their own, `src/dapps/decode/*.js` — that pattern, not a literal per-file line, is what a
+  future multi-module dapp should follow. Phase 4 is that pattern's first real proof: it added
+  four new decoder modules to the directory and none needed an ignore-file change, the glob
+  already covering every non-entry module in the directory rather than a named or counted set of
+  them. Two literal per-file lines also exist today for top-level modules, `src/wallet-identity.js`
+  and `src/shell-wallet.js`.
 - **No runtime dependencies and no CDN scripts.** Anything needed is implemented
   in-repo; the IPFS-servable, no-build-at-runtime posture depends on it.
 - **No backend.** All state is `localStorage` or the URL. That is a product

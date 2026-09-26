@@ -1,6 +1,6 @@
 // decode dapp.js — DxKit lifecycle glue only, matching the settings dapp's shape. All domain
-// logic lives in codecs.js/core.js/decoders.js/ui.js, loaded via manifest dependencies before
-// this file.
+// logic lives in the modules named in this dapp's manifest.json `dependencies` array — that
+// array is the actual source of truth for what loads, and it is what loads before this file.
 //
 // No AbortController is created here. An earlier draft had one per mount, which would have
 // split ownership of a single signal with the per-decode controller ui.ts needs (plan 03-05:

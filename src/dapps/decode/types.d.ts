@@ -170,11 +170,26 @@ interface HexCodec {
 interface Base64Codec {
   decode(input: string): { ok: true; bytes: Uint8Array } | { ok: false; error: string };
   encodeUrl(bytes: Uint8Array): string;
+  // 04-03: additive member (Task 0's ratified D-05 reinterpretation — the render contract is
+  // frozen, module-shaped interfaces may still grow). Never throws (DEC-12) — a split has no
+  // failure branch beyond its own answer, exactly as Utf8.isValid's file-header comment says.
+  splitSegments(input: string): string[];
 }
 
 interface Utf8Codec {
   isValid(bytes: Uint8Array): boolean;
   decode(bytes: Uint8Array): string | null;
+}
+
+// 04-02: additive member on DxDecodeCodecsModule (Task 0's ratified D-05 reinterpretation, see
+// 04-01-SUMMARY.md — the render contract is frozen, module-shaped interfaces may still grow).
+// window.DxDecode.codecs is assigned a fresh object literal against this typed target, so
+// TypeScript excess-property-checks it and Percent could not be attached without first being
+// declared here.
+interface PercentCodec {
+  // Never throws (DEC-12) — the platform decodeURIComponent's URIError is converted to the
+  // failure branch at the codec boundary (codecs.ts).
+  decode(input: string): { ok: true; value: string } | { ok: false; error: string };
 }
 
 interface DxDecodeCodecsModule {
@@ -184,6 +199,7 @@ interface DxDecodeCodecsModule {
   // 03-02, and `unknown` was only ever the frozen contract's placeholder for a value added
   // after the freeze. Describing it as `unknown` is exactly the staleness WR-02 exists to close.
   Base64: Base64Codec;
+  Percent: PercentCodec;
 }
 
 // WR-02: folded in from core.ts's now-deleted top-level interface — the auto-detect resolver's
@@ -225,6 +241,22 @@ interface DxDecodeCoreModule {
   createExplorerLinks(chainId: number | string): LinkPort;
   // D-22/D-23: the auto-detect resolver.
   resolve(input: string): AutoDetectResolution;
+  // 04-01: additive member (Task 0's ratified D-05 reinterpretation — the render contract is
+  // frozen, this module-shaped interface may still grow). coreModule is an explicitly typed
+  // object literal, so an undeclared member cannot be attached to it at all; this is that
+  // declaration. Shared by this plan's base64 decoder and plan 04-03's jwt decoder — walks any
+  // parsed JSON value into a DecodeNode tree, one child per key/index, bounded recursion.
+  jsonToNode(label: string, value: unknown): DecodeNode;
+  // CR-01 (04-review): additive member. jsonToNode's own recursion is bounded at
+  // JSON_WALK_MAX_DEPTH, but `JSON.stringify` on the same parsed value is a second, unbounded
+  // recursion — this wraps it and returns undefined (never throws) on pathological nesting, so
+  // a decoder's `raw` for a JSON node is total the same way the tree already is.
+  jsonToRaw(value: unknown): string | undefined;
+  // 04-03: additive member (Task 0's ratified D-05 reinterpretation — the render contract is
+  // frozen, this module-shaped interface may still grow). epochSeconds -> YYYY-MM-DDTHH:MM:SSZ,
+  // or null when the resulting Date is invalid (see the function's own comment in core.ts for
+  // why a nullable return, not a NaN-shaped string, is the total form of this signature).
+  formatUtcDate(epochSeconds: number): string | null;
   LOG_CAPACITY: number;
   parseDecodeQuery(path: string): DecodeQueryParams;
   // WR-03: `route` is the host's OWN route for this dapp (resolved via findOwnRoute, falling
@@ -290,7 +322,7 @@ interface DxDecodeUiTestHooks {
 }
 
 // The shared namespace type. Every sub-key is optional — not only the ones a later plan
-// attaches — because every one of the five runtime modules opens with
+// attaches — because every runtime module in this directory opens with
 // `window.DxDecode ??= {}`, and that assignment only typechecks against a type whose every
 // member is optional. Do not "tidy" a member to required; it breaks the one line every module
 // starts with.

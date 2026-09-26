@@ -17,6 +17,18 @@ function loadTemplate(): string {
   return readFileSync(resolve(__dirname, '../src/dapps/decode/template.html'), 'utf-8');
 }
 
+// Task 2 (04-01): the manifest's own `dependencies` array IS the module load list — deriving it
+// here, rather than restating it as a literal, means this suite proves the browser's real load
+// order works and never needs its own beforeAll edited again as this phase adds decoders. Each
+// entry is a path relative to `src/` (e.g. `dapps/decode/codecs.js`); this suite loads relative
+// to `test/`, so `../src/` is prepended.
+function loadManifestDependencies(): string[] {
+  const manifest = JSON.parse(readFileSync(resolve(__dirname, '../src/dapps/decode/manifest.json'), 'utf-8')) as {
+    dependencies: string[];
+  };
+  return manifest.dependencies.map((dep) => `../src/${dep}`);
+}
+
 // The tracer's proof — handoff §7.5 / TXT-02's verified vector.
 const HEX_VECTOR = '0x68656c6c6f';
 
@@ -134,10 +146,9 @@ function extractStringLiterals(source: string): string[] {
 }
 
 beforeAll(() => {
-  loadCompiled('../src/dapps/decode/codecs.js');
-  loadCompiled('../src/dapps/decode/core.js');
-  loadCompiled('../src/dapps/decode/decoders.js');
-  loadCompiled('../src/dapps/decode/ui.js');
+  for (const relPath of loadManifestDependencies()) {
+    loadCompiled(relPath);
+  }
 });
 
 afterEach(() => {
@@ -148,8 +159,21 @@ describe('decode dapp — end-to-end tracer (0x68656c6c6f -> hello)', () => {
   it('populates the decoder select from the registry, Auto first, sourced from the registry rather than markup', () => {
     const { container, cleanup } = mount();
     const options = Array.from(container.querySelectorAll<HTMLOptionElement>('#decode-selector option'));
-    expect(options.map((o) => o.value)).toEqual(['auto', 'hex']);
+    const registry = window.DxDecode!.registry!;
+
+    // Guard against the case passing vacuously — an empty registry would satisfy the
+    // options-equal-registry assertion below trivially.
+    expect(registry.size()).toBeGreaterThanOrEqual(2);
+    expect(registry.list().map((d) => d.id)).toEqual(expect.arrayContaining(['hex', 'base64']));
+
+    expect(options[0].value).toBe('auto');
     expect(options[0].textContent).toBe('Auto');
+    // The real claim: the select mirrors the registry, in registration order, which under
+    // manifest-derived loading is manifest order — not a literal restated here that goes stale
+    // on every new decoder.
+    expect(options.slice(1).map((o) => o.value)).toEqual(registry.list().map((d) => d.id));
+    expect(options.length).toBe(registry.size() + 1);
+    // hex is still first in registration order — a label assertion, not a list pin.
     expect(options[1].textContent).toBe('Hex');
     cleanup();
   });
@@ -682,6 +706,13 @@ describe('copy-on-click, the keyboard shortcut, and auto-detect (Task 2)', () =>
 
     // An in-place edit away from the pasted hex — not a fresh paste — must invalidate the
     // resolution rather than leave Decode running hex against unrelated text.
+    //
+    // 04-01: this input is also load-bearing for the base64 curve specifically, not just for
+    // this WR-04 case. codecs.ts strips whitespace before any alphabet check, so
+    // `nothexatall` is accepted by Base64.decode — the base64 decoder's positive-evidence rule
+    // (no padding, no distinguishing char, not valid UTF-8) is what keeps this resolving to
+    // "couldn't identify" instead of a Base64 badge. Do not relax this into a hex-only
+    // regression check.
     textarea.value = 'not hex at all';
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
     runBtn.click();
@@ -874,6 +905,103 @@ describe('the three tabs — Result, the Raw hex dump, and the Log tab (Task 3)'
     const el = ui().renderRaw(bytes, 'hex-dump');
     expect(el.querySelector('img')).toBeNull();
     expect(el.textContent).toContain(text);
+  });
+
+  // TXT-05 (D-08's raw-view registration) — the word-table Raw view, added this plan as one
+  // new RAW_VIEW_DISPATCH entry beside 'hex-dump'. `rawViewDispatchKeys()` below already picks
+  // up this new key automatically (it now runs against a registry containing `abi-words`,
+  // since the beforeAll load list is manifest-derived — see this file's header comment); these
+  // cases are additive, not a rewrite of the hex-dump suite above. Nested inside the enclosing
+  // describe so the afterEach (log clearing) still applies uniformly.
+  describe('the Raw word table (04-04, TXT-05)', () => {
+    function hexToBytes(hex: string): Uint8Array {
+      const clean = hex.startsWith('0x') ? hex.slice(2) : hex;
+      const bytes = new Uint8Array(clean.length / 2);
+      for (let i = 0; i < bytes.length; i++) {
+        bytes[i] = Number.parseInt(clean.slice(i * 2, i * 2 + 2), 16);
+      }
+      return bytes;
+    }
+
+    // handoff §7.1's mintFromMoloch inner call — the same REAL-1 vector this plan's decoder suite
+    // (test/decode-abi-words-decoder.test.ts) pins: a 4-byte selector and two 32-byte words.
+    const REAL_1_BYTES = hexToBytes(
+      '0x2806b0af' +
+        '0000000000000000000000005e58ba0e06ed0f5558f83be732a4b899a674053e' +
+        '0000000000000000000000000000000000000000000000000de0b6b3a7640000',
+    );
+
+    it('rawViewDispatchKeys contains both hex-dump and word-table, and exactly two entries', () => {
+      const keys = ui().rawViewDispatchKeys();
+      expect(keys).toEqual(expect.arrayContaining(['hex-dump', 'word-table']));
+      expect(keys).toHaveLength(2);
+    });
+
+    it('renders REAL-1 as three rows — selector, word 0, word 1 — with the expected offsets and hex', () => {
+      const el = ui().renderRaw(REAL_1_BYTES, 'word-table');
+      const rows = Array.from(el.querySelectorAll('tr'));
+      expect(rows).toHaveLength(3);
+      const offsets = rows.map((r) => r.querySelector('.decode-wordtable-offset')?.textContent);
+      expect(offsets).toEqual(['00000000', '00000004', '00000024']);
+      expect(rows[0].querySelector('.decode-wordtable-word')?.textContent).toBe('2806b0af');
+      expect(rows[1].querySelector('.decode-wordtable-word')?.textContent).toBe(
+        '0000000000000000000000005e58ba0e06ed0f5558f83be732a4b899a674053e',
+      );
+    });
+
+    it('renders a payload with no selector shape starting at offset 00000000 with no selector row', () => {
+      const bytes = hexToBytes(`0x${'c3'.repeat(32)}${'d4'.repeat(32)}`);
+      const el = ui().renderRaw(bytes, 'word-table');
+      const rows = Array.from(el.querySelectorAll('tr'));
+      expect(rows).toHaveLength(2);
+      expect(rows[0].querySelector('.decode-wordtable-offset')?.textContent).toBe('00000000');
+    });
+
+    it('renders a bare 4-byte payload as one row with no selector row — matching the decoder side of the same predicate', () => {
+      const bytes = hexToBytes('0xdeadbeef');
+      const el = ui().renderRaw(bytes, 'word-table');
+      const rows = Array.from(el.querySelectorAll('tr'));
+      expect(rows).toHaveLength(1);
+      expect(rows[0].querySelector('.decode-wordtable-offset')?.textContent).toBe('00000000');
+    });
+
+    it('falls back to the hex dump for an unrecognised rawView, proving the fallback is intact', () => {
+      const bytes = new Uint8Array([0xff]);
+      const el = ui().renderRaw(bytes, 'nonsense-key');
+      expect(el.className).toBe('decode-hexdump');
+    });
+
+    it('renders the empty state, not a table, when rawBytes is null', () => {
+      const el = ui().renderRaw(null, 'word-table');
+      expect(el.className).toBe('decode-empty-message');
+    });
+
+    // The cross-AI review's second HIGH finding: this table has no ASCII column (unlike
+    // renderHexDump), so hostile bytes can never appear here as visible literal text — only as
+    // hex digits. Asserted accordingly: no element created, the expected hex/offsets are present,
+    // and no cell's text contains an angle bracket — never "the markup renders as text", which is
+    // unpassable for this renderer by design. Do not "fix" this case to match the hex-dump
+    // precedent; that precedent relies on a column this table deliberately does not have.
+    it('renders hostile bytes as hex only — no element created, no angle bracket in any cell', () => {
+      const text = '<img src=x onerror=alert(1)>';
+      const bytes = new Uint8Array(Array.from(text, (c) => c.charCodeAt(0)));
+      const expectedHex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+
+      const el = ui().renderRaw(bytes, 'word-table');
+      expect(el.querySelector('img')).toBeNull();
+
+      const cells = Array.from(el.querySelectorAll('td'));
+      const combinedText = cells.map((c) => c.textContent).join('');
+      expect(combinedText).not.toContain('<');
+      expect(combinedText).not.toContain('>');
+      expect(el.querySelector('.decode-wordtable-word')?.textContent).toBe(expectedHex);
+    });
+
+    it('emits no annotation text — cells carry offsets and hex only', () => {
+      const el = ui().renderRaw(REAL_1_BYTES, 'word-table');
+      const text = el.textContent ?? '';
+      expect(text).not.toMatch(/like|small int|large int|zero word/);
+    });
   });
 
   it("the Log empty state makes all three of D-17's claims, each asserted separately", () => {

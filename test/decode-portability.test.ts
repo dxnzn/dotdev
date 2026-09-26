@@ -497,6 +497,9 @@ const ECMASCRIPT_BUILTINS = [
   'Date',
   'Promise',
   'Error',
+  // 04-02: decoders-url.ts's Percent.decode (codecs.ts) wraps this in try/catch at the codec
+  // boundary — a language builtin, not a network or storage primitive.
+  'decodeURIComponent',
 ];
 
 function isAllowedGlobal(name: string): boolean {

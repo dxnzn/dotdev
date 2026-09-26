@@ -42,8 +42,9 @@ in a browser that sends nothing to DNZN.
 - **Hash routing**: query strings arrive inside `e.detail.path` on `dx:mount`; URL updates use
   `history.replaceState` and must not trigger a route change.
 
-- **Testing**: vitest is configured and 46 tests pass today; pure codec and recursion logic must be
-  unit-tested offline against the handoff's real mainnet vectors with a stubbed ABI source.
+- **Testing**: vitest is configured and the full suite is green (775 tests across 19 files as of
+  Phase 4); pure codec and recursion logic must be unit-tested offline against the handoff's real
+  mainnet vectors with a stubbed ABI source.
 <!-- GSD:project-end -->
 
 <!-- GSD:stack-start source:codebase/STACK.md -->

@@ -235,6 +235,111 @@ function resolve(input: string): AutoDetectResolution {
   return { decoderId: bestId, score: bestScore, reason: `resolved to ${bestId}` };
 }
 
+// D-07: the rendered form of exp/iat/nbf — YYYY-MM-DDTHH:MM:SSZ, seconds precision, hand-
+// assembled from UTC getters rather than Date.prototype.toISOString(). The platform serializer
+// always appends a fractional-seconds suffix (`.000Z`) with no option to omit it, and Intl is
+// off test/decode-portability.test.ts's allowlist and not reached for anyway (04-03-PLAN.md's
+// <date_format_decision>) — a locale-aware formatter would need a guard edit this phase does
+// not otherwise need, for a fixed UTC format the handoff vector already specifies. Lives in
+// core.ts per D-04, a shared pure helper: plan 04-03's jwt decoder is the first caller, and the
+// next decoder that renders a timestamp should find this rather than write a second one.
+function formatUtcDate(epochSeconds: number): string | null {
+  const d = new Date(epochSeconds * 1000);
+  // Number.isFinite(1e20) is true, but the Date it produces is invalid and every UTC getter
+  // returns NaN — guarding on the CONSTRUCTED Date, not the input, is what makes this total:
+  // it covers NaN and Infinity inputs too, with no second branch, and it is what stops an
+  // out-of-range claim from rendering as a string of NaN components beside a value someone is
+  // actually trying to reason about.
+  if (Number.isNaN(d.getTime())) return null;
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const year = d.getUTCFullYear();
+  const month = pad(d.getUTCMonth() + 1);
+  const day = pad(d.getUTCDate());
+  const hours = pad(d.getUTCHours());
+  const minutes = pad(d.getUTCMinutes());
+  const seconds = pad(d.getUTCSeconds());
+  return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}Z`;
+}
+
+// ── Shared JSON walker (D-04, 04-01) ───────────────────────────────────────────────────────
+
+// D-04: home is core.ts, not a decoder file — a function returning DecodeNodes is not a codec,
+// and both this plan's base64 decoder and plan 04-03's jwt decoder need it. Attaching it to one
+// decoder file and reading it from another would create a load-order dependency BETWEEN
+// decoder files, breaking D-05's "one new file, no central list" story.
+//
+// Bounded at JSON_WALK_MAX_DEPTH (T-04-26, raised independently by both cross-AI reviewers):
+// JSON.parse accepts nesting a recursive walker overflows on, and while the decode service's
+// own catch above saves the page from that RangeError, the decoder's own stated never-rejects
+// guarantee would be false without a bound at the source. Both consumers inherit the bound for
+// free.
+const JSON_WALK_MAX_DEPTH = 32;
+
+function jsonToNodeWalk(label: string, value: unknown, depth: number): DecodeNode {
+  if (depth >= JSON_WALK_MAX_DEPTH) {
+    // No `raw` — JSON.stringify on the same value is recursive too and would reintroduce the
+    // failure this cap exists to remove.
+    return { label, warning: `nested deeper than ${JSON_WALK_MAX_DEPTH} levels — not expanded` };
+  }
+
+  if (Array.isArray(value)) {
+    // Bracketed indices are a discretion call, recorded here so this walker and plan 04-03's
+    // jwt decoder agree on one answer.
+    return { label, children: value.map((v, i) => jsonToNodeWalk(`[${i}]`, v, depth + 1)) };
+  }
+
+  if (value !== null && typeof value === 'object') {
+    return { label, children: Object.entries(value).map(([k, v]) => jsonToNodeWalk(k, v, depth + 1)) };
+  }
+
+  if (typeof value === 'boolean') {
+    // DecodeNode.value (types.d.ts) is declared string | number | bigint | null — boolean is
+    // deliberately absent, even though display: 'bool' exists. Casting a boolean into that
+    // union does not compile, and widening the union is exactly the change this phase's
+    // must_haves prohibition forbids. Carrying it as its string form under display: 'bool'
+    // renders identically and costs the render contract nothing.
+    return { label, value: String(value), display: 'bool', raw: String(value) };
+  }
+
+  // WR-01: JSON.parse yields a lossy `number` for an integer literal beyond
+  // Number.MAX_SAFE_INTEGER — the digits are already gone by the time this walker sees the
+  // value, so this cannot recover them. D-02's rule for the result tree is "a uint256 is a
+  // bigint, not a lossy number"; the honest minimum here is flagging the loss rather than
+  // rendering (and letting a reader copy) corrupted digits with no indication anything went
+  // wrong. Checked before the general scalar branch so both `value` and `raw` below carry the
+  // warning.
+  if (typeof value === 'number' && Number.isInteger(value) && !Number.isSafeInteger(value)) {
+    return {
+      label,
+      value,
+      raw: String(value),
+      warning: 'integer exceeds 2^53 — digits were lost when the JSON was parsed',
+    };
+  }
+
+  // Anything else — string, number, bigint, or null — is a scalar leaf. null is a scalar here
+  // and produces a leaf with value: null and raw the string 'null', not a childless object node.
+  return { label, value: value as string | number | null, raw: String(value) };
+}
+
+function jsonToNode(label: string, value: unknown): DecodeNode {
+  return jsonToNodeWalk(label, value, 0);
+}
+
+// CR-01: jsonToNodeWalk's own depth cap exists so a pathologically nested value degrades to a
+// warning rather than a stack overflow, but both JSON-bearing decoders then ran the SAME
+// unbounded recursion again via a sibling `JSON.stringify(parsed, null, 2)` for `raw` — the
+// walker's cap protected the tree, not the pretty-printed copy text sitting next to it. This
+// mirrors the walker's own choice at the cap: catch the RangeError and emit no `raw` rather
+// than let it propagate, which is what made the decoders' "never rejects" claim false.
+function jsonToRaw(value: unknown): string | undefined {
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return undefined;
+  }
+}
+
 // ── Query parsing (D-19, D-20, D-21, DEC-03) ───────────────────────────────────────────────
 
 // D-19/D-20/D-21: the share-link's own parameter names, 'z' the compressed variant — declared in
@@ -422,6 +527,9 @@ const coreModule: DxDecodeCoreModule = {
   createLiveLogStore,
   createExplorerLinks,
   resolve,
+  jsonToNode,
+  jsonToRaw,
+  formatUtcDate,
   LOG_CAPACITY,
   parseDecodeQuery,
   buildShareUrl,
