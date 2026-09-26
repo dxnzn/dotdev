@@ -485,6 +485,12 @@ interface DecodeQueryParams {
   decoder?: string;
   data?: string;
   z?: string;
+  // G-06-6: present, holding the literal affirmative form, only when the link asked to auto-run
+  // (parseDecodeQuery in core.ts decides what counts as affirmative). A string, not a boolean,
+  // because that is what URLSearchParams.get returns and because the parser — not this type — is
+  // where the affirmative form is decided. Whether it is actually HONOURED is a separate question
+  // ui.ts's applyQuery answers by reading the recipient's own opt-in setting (DEC-05 amendment).
+  submit?: string;
 }
 
 interface DxDecodeCoreModule {
@@ -557,8 +563,10 @@ interface DxDecodeCoreModule {
 interface DxDecodeUiHandle {
   (): void;
   applyQuery(query?: DecodeQueryParams): void;
-  // The SAME function #decode-share-btn's own click handler calls — one owner, two callers.
-  // Builds the plain share URL, writes it via history.replaceState (D-19), and returns it.
+  // G-06-7: the in-panel button that used to call this directly is gone (removed as a duplicate
+  // of the shell header's own share control) — a host integration (this repo's src/main.ts) is
+  // now the ONLY caller. Builds the plain share URL, writes it via history.replaceState (D-19),
+  // and returns it.
   pressPlainShare(): string;
   // Called by a host integration when ITS OWN copy of `url` failed to reach the clipboard —
   // reveals it in this mount's own #decode-copy-reveal field, exactly as a failed in-panel

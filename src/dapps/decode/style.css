@@ -26,8 +26,32 @@
 
 /* Result tree — the generic DecodeNode walk ui.ts renders (D-13: hand-rolled, two real
    button targets per row — disclosure and value — never the row itself). */
-.decode-tree { font-family: var(--font-mono); font-size: 0.84rem; }
-.decode-tree-node { margin: 0.15rem 0; }
+/* G-06-5: #decode-tree is its own horizontal scroll container, never a wrapper inside
+   renderNode's returned element — test/decode-ui.test.ts asserts `:scope > .decode-tree-children`
+   in eight places, and a wrapper inside the node element would break every one of them. Reuses
+   src/styles/components.css's .table-scroll scrollbar declarations (--scrollbar is defined in
+   every src/styles/theme.css block, so no new token is introduced) rather than redefining that
+   selector — the selector-overlap test below forbids this file from redefining a shared
+   selector. Declaring overflow on the x-axis makes the y-axis a scroll axis too; harmless here
+   only because this element's height is content-derived, never constrained. */
+.decode-tree {
+  font-family: var(--font-mono); font-size: 0.84rem;
+  overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent;
+}
+/* G-06-5: in block layout a node box is sized from its containing block, never from its own
+   content, so deep in the tree the accumulated indentation drives the available width to zero
+   and the box collapses. .decode-tree-row is flex-wrap wrap and .decode-tree-value-foldable
+   carries its own 12rem min-width that cannot shrink, so even a collapsed box still projects that
+   much into the scrollport above — but the row inside it wraps one item per line, a degenerate
+   column: one item per line, the warning text squeezed toward its longest word, the border-left
+   ladder stopping short of it. min-width: min-content makes the box grow to contain its own row
+   instead, so the whole row (disclosure, label, provenance badge, warning text and the ladder)
+   lays out at a usable width and becomes scrollable overflow as one legible row rather than a
+   one-item-per-line column. It does NOT become a single line: a multi-line flex container's
+   min-content main size is its largest item's contribution, not the sum, so the box still
+   resolves to roughly the foldable's own 12rem and the row may still wrap — legibly, on word
+   boundaries, which is the actual improvement. */
+.decode-tree-node { margin: 0.15rem 0; min-width: min-content; }
 .decode-tree-row { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; padding: 0.1rem 0; }
 .decode-tree-label { color: var(--text-muted); }
 .decode-tree-hint {
@@ -95,6 +119,31 @@
 }
 .decode-tree-children.decode-tree-collapsed { display: none; }
 
+/* G-06-5: per-level indentation decays after the sixth level so a tree at the recursion depth
+   bound stays inside its panel. The depth-16 UAT payload reaches 34 nesting levels; at the base
+   1.1rem + 0.6rem = 1.7rem/level that is 57.8rem (roughly 867px at this file's 15px root
+   font-size) against a 732.5px tree at the widest layout. The same 34 levels under this rule cost
+   6 full levels (10.2rem) plus 28 levels at 0.15rem + 0.25rem = 0.4rem (11.2rem) — 21.4rem total,
+   inside the panel, with the scrollport above as the backstop for anything deeper or any narrower
+   viewport. The seven-selector descendant chain is deliberate: .decode-tree-children elements are
+   not direct children of one another (a .decode-tree-node sits between each pair), so a
+   descendant combinator seven levels deep matches the SEVENTH nesting level and everything below
+   it — "first six levels at full indent, everything deeper at a quarter of it". This is
+   presentation only: no element is added or removed, no collapsed state is set, and the renderer
+   still applies no depth heuristic of its own (03 D-15 stays intact — the decoder alone decides
+   what is collapsed). border-left is left to inherit from the base rule above: at 0.4rem per
+   level the hairline ladder is the only remaining depth cue past the sixth level, and removing it
+   would make deep levels unreadable in a different way. */
+.decode-tree-children
+  .decode-tree-children
+  .decode-tree-children
+  .decode-tree-children
+  .decode-tree-children
+  .decode-tree-children
+  .decode-tree-children {
+  margin-left: 0.15rem; padding-left: 0.25rem;
+}
+
 /* Confirmation lives on the row (never the value button, which stays the click target) — a
    CSS-generated label, never text the DOM write rule would have to justify. */
 .decode-tree-row.decode-copied .decode-tree-value { color: var(--accent); }
@@ -111,17 +160,26 @@
 }
 .decode-copy-reveal.revealed { display: block; }
 
-/* Share controls (D-19, D-20, D-06) — the ordinary Copy link is always present; the
-   compressed variant is a second control, hidden until the size warning shows (D-20). */
+/* Share controls (D-19, D-20, D-06). G-06-7 removed the in-panel plain "Copy link" button as a
+   duplicate of the shell header's own share control (the plain link is now reached only through
+   handle.pressPlainShare — see ui.ts's SHARE-04 comment); decode-share-z-btn (the compressed
+   variant) is the one button this panel still owns, hidden until the size warning shows (D-20).
+   Its base style used to live on a class shared with the removed button — that shared name is
+   gone too, folded directly into .decode-share-z-btn below, since one button no longer needs a
+   name distinct from its own selector. */
 .decode-share-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
-.decode-share-btn {
+.decode-share-z-btn {
   background: none; border: 1px solid var(--border); border-radius: var(--radius);
   padding: 0.35rem 0.7rem; font-family: inherit; font-size: 0.78rem; color: var(--text);
   cursor: pointer; transition: all 0.15s;
 }
-.decode-share-btn:hover { color: var(--accent); border-color: var(--accent); }
-.decode-share-btn.decode-copied { color: var(--accent); border-color: var(--accent); }
-.decode-share-btn.decode-copied::after { content: 'Copied'; margin-left: 0.4em; font-size: 0.7rem; }
+.decode-share-z-btn:hover { color: var(--accent); border-color: var(--accent); }
+/* G-06-9: pressed state, mirroring :hover's own accent border/colour pair — decode-share-z-btn
+   is the last button in this file with its own styling, so leaving it dead on click while every
+   other control on the page flashes would be an odd end state for a plan about press feedback. */
+.decode-share-z-btn:active { color: var(--accent); border-color: var(--accent); }
+.decode-share-z-btn.decode-copied { color: var(--accent); border-color: var(--accent); }
+.decode-share-z-btn.decode-copied::after { content: 'Copied'; margin-left: 0.4em; font-size: 0.7rem; }
 .decode-share-size { font-size: 0.72rem; color: var(--text-muted); }
 .decode-share-warning { font-size: 0.78rem; color: var(--amber); margin: 0.4rem 0 0; }
 
@@ -142,12 +200,39 @@
 .decode-wordtable-word { color: var(--text); white-space: normal; overflow-wrap: anywhere; }
 
 /* Log — the live entry table (D-17, D-18) */
+/* G-06-5: #decode-log is its own horizontal scroll container — a backstop, not the everyday
+   path, now that the summary-row wrap rule below lets the table's width: 100% actually shrink
+   to the panel. Kept anyway because the truth G-06-5 states is that long log entries are
+   REACHABLE, and a clipping container can silently stop honouring that the next time a column
+   grows (a very long unbreakable Host, or seven columns on a narrow phone). Same scrollbar
+   declarations as .decode-tree above, reused rather than redefined for the same reason. */
+.decode-log {
+  overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent;
+}
 .decode-log-controls { display: flex; justify-content: flex-end; gap: 0.5rem; margin-bottom: 0.6rem; }
+/* G-06-9: the three Log controls reuse the shell's .copy-btn (components.css) rather than
+   inventing a fourth button class, so they inherit its sizing and Task 1's new pressed state for
+   free. .copy-btn carries margin-top: 1.5rem, a layout value baked into the component so CIC's
+   standalone button clears the table above it — wrong in a control strip, so it is zeroed here.
+   This MUST be a descendant selector, never a bare `.copy-btn` rule: the selector-overlap test
+   below (`style.css defines no selector already present in components.css`) forbids this file
+   from redefining a shell selector outright. */
+.decode-log-controls .copy-btn { margin-top: 0; }
 .decode-log-table { width: 100%; border-collapse: collapse; font-family: var(--font-mono); font-size: 0.78rem; }
 .decode-log-table th, .decode-log-table td {
   text-align: left; padding: 0.3rem 0.6rem; border-bottom: 1px solid var(--border);
 }
 .decode-log-table th { color: var(--text-muted); font-weight: 500; text-transform: uppercase; font-size: 0.68rem; }
+/* G-06-5: the table is width: 100% with no table-layout declaration, so its used width cannot go
+   below its min-content width. The Path cell holds a single unbreakable token of 105 to 139
+   characters (an Etherscan v2 URL, transport.ts), which put that min-content at roughly 1300px
+   against a 732.5px panel — making the cell breakable is what lets width: 100% mean what it
+   says. Follows .decode-wordtable-word's own precedent above for the identical question. Scoped
+   to the summary row, not to .decode-log-table td generally, so the detail cell keeps answering
+   to .decode-log-detail-value's own word-break rule rather than acquiring a second, redundant
+   one. The visible consequence, stated honestly: the Path cell now wraps to about two lines
+   instead of one, which is the price of not making the whole table scroll for every entry. */
+.decode-log-summary-row td { overflow-wrap: anywhere; }
 
 /* Log — the expandable row (NET-06), matching renderNode's own disclosure look */
 .decode-log-disclosure {

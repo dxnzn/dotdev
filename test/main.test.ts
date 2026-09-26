@@ -80,7 +80,7 @@ describe('main — shell configuration', () => {
     expect(identityClearAt).toBeLessThan(createAt);
   });
 
-  it('declares plugins in the order settings, theme, ethereum, wallet', () => {
+  it('declares plugins in the order settings, theme, ethereum, links, wallet', () => {
     const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
     // A multi-line plugin value is safe here provided it closes at four-space indent
     // (`    }),`), as the theme and wallet entries do: the block regex is non-greedy and
@@ -90,7 +90,15 @@ describe('main — shell configuration', () => {
     const pluginsBlock = main.match(/plugins:\s*\{([\s\S]*?)\n {2}\},/)?.[1];
     expect(pluginsBlock).toBeDefined();
     const keys = [...pluginsBlock!.matchAll(/^\s{4}(\w+):/gm)].map((m) => m[1]);
-    expect(keys).toEqual(['settings', 'theme', 'ethereum', 'wallet']);
+    // G-06-6/06-10: `links` joins the schema-only group (settings/theme/ethereum/links) ahead of
+    // `wallet`, the one plugin doing real async work in init() — same reasoning as ethereum's own
+    // placement, restated in the comment above this object in main.ts.
+    expect(keys).toEqual(['settings', 'theme', 'ethereum', 'links', 'wallet']);
+  });
+
+  it('registers the links plugin via DnznLinks.createLinksPlugin()', () => {
+    const main = readFileSync(resolve(__dirname, '../src/main.ts'), 'utf-8');
+    expect(main).toMatch(/links:\s*DnznLinks\.createLinksPlugin\(\)/);
   });
 
   // SHARE-04 deviation (see .planning/quick/260905-ac3.../SUMMARY.md): decode cannot itself

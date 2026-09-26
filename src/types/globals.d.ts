@@ -42,6 +42,13 @@ declare const DnznEthereum: {
   CHAINS: { chainId: number; name: string; explorer: string }[];
 };
 
+// DnznLinks — dotdev-local schema-only plugin (loaded via plugins/links.js <script> tag before
+// shell.js/main.js; src/main.ts references the bare identifier). G-06-6/06-10: declares the
+// 'autoRunSharedLinks' toggle decode's ui.ts reads through the settings port.
+declare const DnznLinks: {
+  createLinksPlugin(): import('../vendor/dxkit/index').Plugin;
+};
+
 // Settings dapp domain modules (loaded dynamically via manifest dependencies)
 interface DnznSettingsFieldsModule {
   renderField(
@@ -145,6 +152,7 @@ interface CICModule {
 declare interface Window {
   CIC?: CICModule;
   DnznEthereum?: typeof DnznEthereum;
+  DnznLinks?: typeof DnznLinks;
   DnznSettingsFields?: DnznSettingsFieldsModule;
   DnznSettingsSync?: DnznSettingsSyncModule;
   DnznSettingsDapp?: DnznSettingsDappModule;

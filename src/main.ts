@@ -108,6 +108,10 @@ const shell = DxKit.createShell({
     // Schema-only — owns no storage of its own. Its values live inside the settings
     // plugin's blob, under the `ethereum` section this object key creates.
     ethereum: DnznEthereum.createEthereumPlugin(),
+    // Schema-only, same shape as `ethereum` above — its own section (not folded into
+    // `ethereum`'s) because 'autoRunSharedLinks' governs decode's auto-run behavior for every
+    // decoder, not just Ethereum ones (G-06-6/06-10, DEC-05 amendment).
+    links: DnznLinks.createLinksPlugin(),
     // The only plugin here doing real async work in init(), hence last: DxKit awaits each
     // init() serially, so a slow one delays everything behind it. Only the EIP-1193 provider
     // is registered (D-02) — the upstream dev provider reports itself available

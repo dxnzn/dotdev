@@ -400,6 +400,16 @@ function parseDecodeQuery(path: string): DecodeQueryParams {
     if (result.data === undefined) result.data = calldata;
   }
 
+  // G-06-6: the share-link auto-run request. The affirmative form is the LITERAL string '1' —
+  // one spelling, so every link that ever asks for it asks the same way. An empty value, any
+  // other string ('true', 'yes', a stray duplicate key's second value) and a missing key are all
+  // absent — result.submit stays unset, exactly as if the link had never carried the parameter.
+  // This function only reports what the link SAYS; whether the request is actually honoured is
+  // decided in ui.ts's applyQuery, against the recipient's own opt-in setting (DEC-05 amendment,
+  // ratified 06-10) — never here, and never by running anything in this file.
+  const submit = params.get('submit');
+  if (submit === '1') result.submit = submit;
+
   return result;
 }
 

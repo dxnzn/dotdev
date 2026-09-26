@@ -130,6 +130,12 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   `container.querySelector()`, never `document`.
 - **`init()` returns a cleanup closure.** `dx:unmount` must tear down listeners,
   RAF callbacks, and observers; a leak here survives navigation.
+- **Buttons take their sizing and their pressed state from `src/styles/components.css`, never
+  from a dapp's own stylesheet.** Reach for `.btn-group` for a group of actions or a radiogroup,
+  and `.copy-btn` for a standalone or strip action — both now carry a real pressed state. The one
+  thing a dapp legitimately overrides locally is layout (e.g. zeroing `.copy-btn`'s margin in a
+  control strip), scoped as a descendant selector, since a dapp stylesheet may not redefine a
+  shell selector.
 - Biome: 2-space indent, single quotes, trailing commas, 120 columns.
 
 ## Gotchas
@@ -174,3 +180,11 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   entry, so adding a second exempt file or helper requires deliberately widening the allowlist,
   not just writing the code — the guard's failure message alone (a plain "unlisted global" or
   network/storage-identifier violation) won't explain this design; this note is the explanation.
+- **The decode tree's indentation cap and both scroll containers (G-06-5) are pure CSS, and must
+  stay that way.** The portability guard scans `style.css` as well as the TypeScript, and its
+  permitted-globals list omits `getComputedStyle`, `ResizeObserver`, `requestAnimationFrame` and
+  `matchMedia` — widening it is a ratified blocking decision in this project (06 D-12's
+  precedent), not a convenience. The scroll containers must also stay on `#decode-tree` and
+  `#decode-log` at the template level: `test/decode-ui.test.ts` asserts
+  `:scope > .decode-tree-children` in eight places, and a wrapper inside `renderNode`'s returned
+  element would break every one of them.

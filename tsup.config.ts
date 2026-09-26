@@ -14,6 +14,7 @@ export default defineConfig({
     'src/dapps/cic/dapp.ts',
     'src/dapps/cic/cic.ts',
     'src/plugins/ethereum.ts',
+    'src/plugins/links.ts',
     'src/dapps/settings/dapp.ts',
     'src/dapps/settings/settings.ts',
     'src/dapps/settings/fields.ts',

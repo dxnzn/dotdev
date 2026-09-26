@@ -30,7 +30,7 @@ const HEX_VECTOR = '0x68656c6c6f';
 const INTEROP_FIXTURE_B64URL = 'M6gwszAzNUsGwjQA';
 const INTEROP_FIXTURE_TEXT = '0x68656c6c6f';
 
-type QueryParams = { decoder?: string; data?: string; z?: string };
+type QueryParams = { decoder?: string; data?: string; z?: string; submit?: string };
 
 type CoreHelpers = {
   parseDecodeQuery(path: string): QueryParams;
@@ -49,18 +49,41 @@ function core(): CoreHelpers {
 
 type InitFn = (container: HTMLElement, dx: unknown, query?: QueryParams) => () => void;
 
+// G-06-7: the shape of the handle init() returns — ui.ts attaches pressPlainShare to the same
+// function object it hands back as the cleanup closure. mount()'s own `cleanup` wraps that
+// object in a fresh closure (see mountHandle() below for why the two "Copy link" cases need
+// the original instead), so this type backs mountHandle()'s return, not mount()'s.
+type PressPlainShareHandle = (() => void) & { pressPlainShare(): string };
+
 // WR-03: a stub shell exposing getManifests() the way the real window.__DXKIT__ does — ui.ts's
 // init() calls core.findOwnRoute(dx) to resolve the route buildShareUrl composes, and this
 // suite needs the real answer ('/tools/decode'), not the location.hash fallback (jsdom's default
 // hash is empty, which would build a link this suite could not tell apart from a bug).
 const DECODE_DX_STUB = { getManifests: () => [{ id: 'decode', route: '/tools/decode' }] };
 
-function mount(query?: QueryParams): { container: HTMLElement; cleanup: () => void } {
+// G-06-6/06-10: DECODE_DX_STUB above carries no `settings` at all — createShellSettingsPort's
+// own feature-detection makes that the SAME "absent, degrade to false" case as a host that
+// declares the settings plugin but never registers the `links` section, so every existing test
+// using `mount()`/`mountHandle()` unmodified already covers "no host support means no auto-run,
+// never a crash" for free. This stub is only for the cases that need the setting to read as
+// explicitly true or explicitly false, mirroring ui.ts's own createShellSettingsPort bridge
+// (bare key -> section that declares it, scanned via getSections()).
+function dxWithAutoRunSetting(enabled: boolean) {
+  return {
+    ...DECODE_DX_STUB,
+    settings: {
+      getSections: () => [{ id: 'links', definitions: [{ key: 'autoRunSharedLinks' }] }],
+      get: (_sectionId: string, key: string) => (key === 'autoRunSharedLinks' ? enabled : undefined),
+    },
+  };
+}
+
+function mount(query?: QueryParams, dx: unknown = DECODE_DX_STUB): { container: HTMLElement; cleanup: () => void } {
   const container = document.createElement('div');
   container.innerHTML = loadTemplate();
   document.body.append(container);
   const init = window.DxDecode!.ui!.init as unknown as InitFn;
-  const cleanup = init(container, DECODE_DX_STUB, query);
+  const cleanup = init(container, dx, query);
   return {
     container,
     cleanup: () => {
@@ -68,6 +91,20 @@ function mount(query?: QueryParams): { container: HTMLElement; cleanup: () => vo
       container.remove();
     },
   };
+}
+
+// G-06-7: unlike mount() above, this returns the ORIGINAL handle init() hands back — the same
+// function object ui.ts attaches pressPlainShare/revealShareFailure to (mount()'s own `cleanup`
+// wraps it in a fresh closure for caller convenience, which drops those members). Needed by the
+// two "Copy link" cases below that used to press the in-panel button ui.ts's pressPlainShare
+// backed directly; the shell header reaches the exact same handle via window.DxDecode.activeUi.
+function mountHandle(query?: QueryParams): { container: HTMLElement; handle: PressPlainShareHandle } {
+  const container = document.createElement('div');
+  container.innerHTML = loadTemplate();
+  document.body.append(container);
+  const init = window.DxDecode!.ui!.init as unknown as InitFn;
+  const handle = init(container, DECODE_DX_STUB, query) as unknown as PressPlainShareHandle;
+  return { container, handle };
 }
 
 // A real CompressionStream/DecompressionStream pipeline schedules across more than one
@@ -188,6 +225,144 @@ describe('mounting with a link that carries a payload but no decoder', () => {
   });
 });
 
+// ── G-06-6: parseDecodeQuery recognises `submit` (DEC-05 amendment, ratified 06-10) ─────────
+
+describe('parseDecodeQuery — submit', () => {
+  it('reports submit for the exact affirmative form "1"', () => {
+    expect(core().parseDecodeQuery('/tools/decode/?data=abc&submit=1')).toEqual({ data: 'abc', submit: '1' });
+  });
+
+  it('treats an empty value as absent', () => {
+    expect(core().parseDecodeQuery('/tools/decode/?data=abc&submit=')).toEqual({ data: 'abc' });
+  });
+
+  it('treats any unrecognised value as absent, not just falsy-looking ones', () => {
+    for (const value of ['true', 'yes', '0', 'submit']) {
+      expect(core().parseDecodeQuery(`/tools/decode/?data=abc&submit=${value}`)).toEqual({ data: 'abc' });
+    }
+  });
+
+  it('treats a missing key as absent — every existing share link is unaffected', () => {
+    expect(core().parseDecodeQuery('/tools/decode/?data=abc')).toEqual({ data: 'abc' });
+  });
+});
+
+// ── G-06-6: submit=1 is a request, honoured only behind the recipient's own opt-in setting ──
+//
+// Ratified rule (06-10 checkpoint, option D — none of the plan's original A/B/C): the sender's
+// submit=1 is never itself consent. It is honoured only when the RECIPIENT has themselves
+// enabled 'autoRunSharedLinks' in Settings (src/plugins/links.ts), default off. With it off,
+// submit=1 changes nothing versus today. With it on, EVERY decoder auto-runs uniformly — no
+// per-decoder network split, unlike the plan's original A/B/C options.
+describe('G-06-6: submit=1 honoured only behind the recipient-owned autoRunSharedLinks setting', () => {
+  it('with no host settings support at all (DECODE_DX_STUB), submit=1 only loads the payload — degrades to false, never crashes', () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { container, cleanup } = mount({ decoder: 'hex', data: HEX_VECTOR, submit: '1' });
+    expect(decodeSpy).not.toHaveBeenCalled();
+    expect(container.querySelector<HTMLTextAreaElement>('#decode-textarea')!.value).toBe(HEX_VECTOR);
+
+    cleanup();
+  });
+
+  it('with the setting explicitly off, submit=1 behaves identically to the setting being absent', () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { cleanup } = mount({ decoder: 'hex', data: HEX_VECTOR, submit: '1' }, dxWithAutoRunSetting(false));
+    expect(decodeSpy).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it('with the setting on, submit=1 auto-runs through the real Decode path with no click', () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { cleanup } = mount({ decoder: 'hex', data: HEX_VECTOR, submit: '1' }, dxWithAutoRunSetting(true));
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('with the setting on but no submit key, every existing share link is unaffected — no auto-run', () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { cleanup } = mount({ decoder: 'hex', data: HEX_VECTOR }, dxWithAutoRunSetting(true));
+    expect(decodeSpy).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it('with the setting on and submit=1 but no payload at all, it is a no-op — never a decode of the empty string', () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { cleanup } = mount({ submit: '1' }, dxWithAutoRunSetting(true));
+    expect(decodeSpy).not.toHaveBeenCalled();
+
+    cleanup();
+  });
+
+  it('a compressed link with submit=1 and the setting on auto-runs after a successful inflation', async () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+    const z = await core().compressForShare(HEX_VECTOR);
+
+    const { cleanup } = mount({ decoder: 'hex', z, submit: '1' }, dxWithAutoRunSetting(true));
+    // Two flush() ticks, not one: this case chains a real decode (runDecode's own await) AFTER
+    // the real CompressionStream/DecompressionStream round trip every other compressed-link case
+    // in this file waits a single flush() for — one flush() alone was observed flaky under a
+    // fully parallel `make test` run, where CPU contention occasionally pushed the combined
+    // round trip past 20ms.
+    await flush();
+    await flush();
+    expect(decodeSpy).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+
+  it('a compressed link that fails to inflate reports the failure and never auto-runs, even with the setting on', async () => {
+    const hexDecoder = window.DxDecode!.registry!.get('hex')!;
+    const decodeSpy = vi.spyOn(hexDecoder, 'decode');
+
+    const { container, cleanup } = mount(
+      { z: 'not-a-real-compressed-payload', submit: '1' },
+      dxWithAutoRunSetting(true),
+    );
+    await flush();
+    expect(decodeSpy).not.toHaveBeenCalled();
+    expect(container.querySelector('#decode-tree')!.textContent).toBeTruthy();
+
+    cleanup();
+  });
+
+  // Registers a decoder that DECLARES settings the way a network-capable one would (mirroring
+  // decode-ui.test.ts's own registerPatchProbe pattern) — a real network call is deliberately
+  // not exercised here (the plan's own instruction), only that the auto-run does not special-case
+  // a decoder for having settings at all, proving option D's "uniform, no per-decoder split".
+  it('with the setting on, a decoder that declares its own settings (standing in for a network-capable one) auto-runs exactly like a network-free one', () => {
+    const decodeFn = vi.fn().mockResolvedValue({ node: { label: 'stub' } });
+    window.DxDecode!.registry!.register({
+      id: 'stub-network-capable',
+      label: 'stub network-capable',
+      settings: [{ key: 'someCredential', label: 'x', type: 'text', default: '' }],
+      canDecode: () => 0,
+      decode: decodeFn,
+    });
+
+    const { cleanup } = mount(
+      { decoder: 'stub-network-capable', data: HEX_VECTOR, submit: '1' },
+      dxWithAutoRunSetting(true),
+    );
+    expect(decodeFn).toHaveBeenCalledTimes(1);
+
+    cleanup();
+  });
+});
+
 // ── dx:route:subpath — a share link followed while already mounted (WR-05) ────────────────
 //
 // DxKit does not remount a dapp when the route changes WITHIN itself — the vendored shell's own
@@ -254,20 +429,20 @@ describe('dx:route:subpath — a share link followed while already mounted', () 
 // ── Copy link — writes only on the press, never a keystroke/paste/decode (D-19) ────────────
 
 describe('Copy link', () => {
-  it('replaces history exactly once with a URL containing the decoder and the payload, and never pushes', async () => {
+  // G-06-7: the in-panel button that used to drive this is gone — retargeted through
+  // handle.pressPlainShare, the path the shell header now uses exclusively (SHARE-04). The
+  // behaviour under test (a press writes history exactly once, never pushes) is unchanged.
+  it('replaces history exactly once with a URL containing the decoder and the payload, and never pushes', () => {
     const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
     const pushState = vi.spyOn(window.history, 'pushState').mockImplementation(() => undefined);
-    installClipboard(vi.fn().mockResolvedValue(undefined));
 
-    const { container, cleanup } = mount();
+    const { container, handle } = mountHandle();
     const selector = container.querySelector<HTMLSelectElement>('#decode-selector')!;
     const textarea = container.querySelector<HTMLTextAreaElement>('#decode-textarea')!;
-    const shareBtn = container.querySelector<HTMLButtonElement>('#decode-share-btn')!;
 
     selector.value = 'hex';
     textarea.value = HEX_VECTOR;
-    shareBtn.click();
-    await flush();
+    handle.pressPlainShare();
 
     expect(replaceState).toHaveBeenCalledTimes(1);
     expect(pushState).not.toHaveBeenCalled();
@@ -275,8 +450,8 @@ describe('Copy link', () => {
     expect(url).toContain('decoder=hex');
     expect(url).toContain(`data=${encodeURIComponent(HEX_VECTOR)}`);
 
-    cleanup();
-    removeClipboard();
+    handle();
+    container.remove();
   });
 
   it('builds a URL with the route followed by a slash then the question mark, params after the hash', () => {
@@ -660,7 +835,7 @@ describe('the compressed variant — the source scan proving no one-shot drain o
 });
 
 describe('the compressed variant — mounted in the UI', () => {
-  it('with both stream constructors absent, the compressed action stays hidden and the ordinary link still works', async () => {
+  it('with both stream constructors absent, the compressed action stays hidden and the ordinary link still works', () => {
     const originalCompression = globalThis.CompressionStream;
     const originalDecompression = globalThis.DecompressionStream;
     // @ts-expect-error deliberately removing lib-declared globals to simulate their absence
@@ -669,24 +844,24 @@ describe('the compressed variant — mounted in the UI', () => {
     delete globalThis.DecompressionStream;
 
     try {
+      // G-06-7: "the ordinary link" is now handle.pressPlainShare — the in-panel button this
+      // test used to press is gone; the assertion (a press writes history exactly once) is
+      // unchanged.
       const replaceState = vi.spyOn(window.history, 'replaceState').mockImplementation(() => undefined);
-      installClipboard(vi.fn().mockResolvedValue(undefined));
 
-      const { container, cleanup } = mount();
+      const { container, handle } = mountHandle();
       const textarea = container.querySelector<HTMLTextAreaElement>('#decode-textarea')!;
-      const shareBtn = container.querySelector<HTMLButtonElement>('#decode-share-btn')!;
       const shareZBtn = container.querySelector<HTMLButtonElement>('#decode-share-z-btn')!;
 
       textarea.value = '0'.repeat(core().SHARE_SIZE_WARNING_BYTES + 1);
       textarea.dispatchEvent(new Event('input', { bubbles: true }));
       expect(shareZBtn.hidden).toBe(true);
 
-      shareBtn.click();
-      await flush();
+      handle.pressPlainShare();
       expect(replaceState).toHaveBeenCalledTimes(1);
 
-      cleanup();
-      removeClipboard();
+      handle();
+      container.remove();
     } finally {
       globalThis.CompressionStream = originalCompression;
       globalThis.DecompressionStream = originalDecompression;

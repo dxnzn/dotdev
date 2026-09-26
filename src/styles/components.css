@@ -28,15 +28,38 @@
   display: flex; gap: 0; background: var(--bg-input);
   border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
 }
+/* G-06-8: a bare .btn-group (no size modifier) now has real padding and font-size of its own,
+   rather than rendering at the browser's zero-padding default — #decode-actions is the only
+   consumer that has ever hit this, every other .btn-group in the tree carries --sm below. This
+   is deliberately TALLER than --sm (0.7rem vs 0.5rem vertical padding): the base rule is the
+   "give me the pill look with more height" size, --sm is the compact one. */
 .btn-group button {
   flex: 1; font-family: var(--font-mono); background: transparent;
   border: none; color: var(--text-muted); cursor: pointer;
   transition: all 0.15s; border-right: 1px solid var(--border);
+  padding: 0.7rem 0.75rem; font-size: 0.72rem; font-weight: 500; letter-spacing: 0.04em;
 }
 .btn-group button:last-child { border-right: none; }
 .btn-group button.active { background: var(--accent-dim); color: var(--accent); }
 .btn-group button:hover:not(.active) { color: var(--text-dim); background: rgba(255,255,255,0.03); }
+/* G-06-8: pressed state — the site's first. It has to beat the :hover rule above, because the
+   pointer is necessarily hovering for the whole duration of a press. WR-04: it wins on SOURCE
+   ORDER, not specificity — :not(.active) and :not(:disabled) each contribute the same 0-1-0, so
+   both selectors are 0-3-1 and the later one applies. Moving this rule above the :hover rule
+   therefore silently kills the pressed feedback for every mouse user. :not(:disabled) earns its
+   place as a real condition (a disabled control must never flash), not as a specificity tiebreak;
+   deleting it would make disabled controls flash rather than change which rule wins. No separate .is-pressed class for
+   keyboard activation: :active already covers Space-held and Enter's brief active state, so a
+   second mechanism would be dead weight. .tabs button is deliberately NOT given this treatment —
+   a tab already announces itself by becoming .active on the same click, so a pressed state there
+   would be feedback for something that already shows feedback. */
+.btn-group button:active:not(:disabled) { background: var(--accent-dim); color: var(--accent); }
 
+/* .btn-group--sm button and .btn-group button above share specificity (0-1-1) — --sm wins only
+   because it appears LATER in this file. Reordering these two rules silently un-sizes every
+   --sm consumer (CIC, tpl). Restating font-weight/letter-spacing here is redundant now that the
+   base rule also sets them; left as-is (byte-identical to before this plan) so this block's diff
+   is exactly the base-rule and pressed-state additions above, nothing here. */
 .btn-group--sm button {
   padding: 0.5rem 0.25rem; font-size: 0.68rem; font-weight: 500; letter-spacing: 0.04em;
 }
@@ -331,6 +354,10 @@ option { background: var(--bg-card); color: var(--text); }
   transition: all 0.15s; margin-top: 1.5rem;
 }
 .copy-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* G-06-8: pressed state, same accent pair .copy-btn:hover already uses. Specificity is not
+   contested here (both 0-2-0, later wins), so the plain :active form is enough — no
+   :not(:disabled) needed, unlike .btn-group button above. */
+.copy-btn:active { border-color: var(--accent); color: var(--accent); }
 
 /* ── SECTION TITLE (reusable) ── */
 .section-title {

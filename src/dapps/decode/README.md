@@ -161,6 +161,30 @@ This directory is portable into any DxKit shell that satisfies two things:
   - `.tabs`, `.tab-content` — the Result/Raw/Log tab strip
   - `.results-area` — the right-hand column wrapper
 
+The other half of that contract (G-06-5): this directory owns its own horizontal overflow rather
+than relying on a host wrapper for it. `#decode-tree` and `#decode-log` are both scrollports in
+their own right, deliberate because the site's own `html`, `body` and `.app` all carry
+`overflow-x: hidden` (`src/styles/base.css`), so an unclipped descendant is silently invisible
+rather than scrollable — a host shell does not have to wrap either panel for long content to stay
+reachable, and lifting this directory into another shell carries the overflow behaviour with it.
+Per-level tree indentation also decays after the sixth level so a tree at the recursion depth
+bound stays inside its panel, expressed as a descendant-selector chain in `style.css` rather than
+as a measured value in `ui.ts` — a measured cap would need browser-measurement globals the
+portability guard does not permit (see `AGENTS.md`).
+
+A third piece of that contract (G-06-7): the plain share link (DEC-06) is now reached only
+through a host-integration seam, never through a control in the panel itself. `init()`'s returned
+handle exposes `pressPlainShare(): string` (builds the link from the current decoder and input,
+writes it via `history.replaceState`, and returns it) and `revealShareFailure(url: string)`
+(shown in this mount's own copy-fallback field when a host's own clipboard write fails). A host
+that wants a plain-link control — a header button, a menu item, whatever fits its own chrome —
+must wire it to `pressPlainShare` itself; **a host that wires nothing gives its users no way to
+copy a plain link at all.** This dotdev shell wires it in `src/main.ts` via the `dx:mount`/
+`dx:unmount` listeners and `window.DxDecode.activeUi` (the same single-live-instance seam `log`
+uses), driving its own header button. The compressed variant (DEC-07), the byte readout, and the
+over-length warning all remain in the panel itself — no host seam exists for those, so removing
+the in-panel plain-link button did not touch them.
+
 `DecodeContext` also carries four **optional** ports a host may supply, each of which a decoder
 must treat as absent-capable rather than assumed:
 
@@ -179,9 +203,12 @@ must treat as absent-capable rather than assumed:
 
 ## Share links
 
-Pressing **Copy link** writes the current decoder and input into the address bar via
-`history.replaceState` — never on a keystroke, a paste, or a decode, and never causing a route
-change. The emitted form always carries a slash between the route and the query:
+G-06-7: there is no in-panel "Copy link" button any more — a plain share link is copied only
+through whatever control the host shell wires to `pressPlainShare` (see the host-shell contract
+above). This dotdev shell wires it to its own header button. Pressing that control writes the
+current decoder and input into the address bar via `history.replaceState` — never on a keystroke,
+a paste, or a decode, and never causing a route change. The emitted form always carries a slash
+between the route and the query:
 
 ```
 #/tools/decode/?decoder=hex&data=0x68656c6c6f
@@ -212,6 +239,41 @@ Two precedence rules, both following the same principle — an explicit paramete
 implied one: an explicit `decoder` parameter wins over the alias's own implication, and an
 explicit `data` parameter wins over `calldata` as the payload source (while the alias's decoder
 implication still stands, since nothing contradicted it).
+
+A fourth parameter, `submit=1` (G-06-6), asks the link to decode itself on load instead of only
+loading the payload and waiting for a click:
+
+```
+#/tools/decode/?decoder=hex&data=0x68656c6c6f&submit=1
+```
+
+Any value other than the literal `1` — empty, `true`, a typo, or the key being absent at all — is
+ignored, and the link behaves exactly as it does today. **`submit=1` is a request, not consent.**
+The person who composed the link cannot know what the recipient has configured, and DEC-05
+promises that nothing requiring network runs until the user asks for it. The amended rule (ratified
+at the 06-10 checkpoint, recorded in that plan's SUMMARY) reads:
+
+> Pasting without choosing a decoder pre-selects the best match by `canDecode()` confidence and
+> shows an auto-detect badge; nothing requiring network runs until the user clicks Decode, unless
+> the recipient has themselves enabled auto-running shared links in Settings (default off).
+
+Consent is therefore something the **recipient** grants once, ahead of time, in their own copy of
+the settings dapp — never something a query parameter can grant on the sender's behalf. With the
+setting off (the default), `submit=1` changes nothing. With it on, `submit=1` runs whichever
+decoder the link names, **uniformly, for every decoder** — hex and base64 exactly the same as
+`eth-calldata` — because a recipient who opted in has already agreed to it for all of them; there
+is no partial or per-decoder version of this setting.
+
+**What turning it on actually costs**, so a link author composing one for someone else knows what
+they are asking for: even with no Etherscan key or RPC URL configured, `eth-calldata`'s selector
+lookup reaches two public, keyless registries (`api.openchain.xyz`, `4byte.directory`) the moment
+the link opens — that lookup is not gated on credentials at all. With an Etherscan key and RPC URL
+configured, an auto-run also spends the recipient's own request quota against their own providers
+before they have seen what the payload is. Nothing in either case reaches DNZN or the link's
+author: every request goes to the recipient's own configured endpoint or to a keyless public
+registry, and a link carries only the payload, the decoder id and now this flag — never a target
+URL, so there is no way for a link to redirect a lookup anywhere the recipient (or this file's own
+fixed constants) didn't already point it.
 
 ## Privacy
 

@@ -133,6 +133,52 @@ function extractCssSelectors(css: string): Set<string> {
   return selectors;
 }
 
+// G-06-5: like extractCssSelectors above, but keeps each selector paired with its own
+// declaration block instead of discarding it — the rule-level regression below reads a specific
+// declaration back out of a specific selector's block, not just proves the selector exists.
+// Modeled on extractCssSelectors's own comment-stripping and whitespace normalisation so a
+// reformatted or line-wrapped selector chain still matches.
+function extractCssRules(css: string): Array<{ selector: string; block: string }> {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules: Array<{ selector: string; block: string }> = [];
+  let buffer = '';
+  let currentSelector = '';
+  let inBlock = false;
+  for (const ch of withoutComments) {
+    if (ch === '{') {
+      currentSelector = buffer.trim();
+      buffer = '';
+      inBlock = true;
+    } else if (ch === '}') {
+      if (inBlock && currentSelector && !currentSelector.startsWith('@')) {
+        for (const sel of currentSelector.split(',')) {
+          const trimmed = sel.trim().replace(/\s+/g, ' ');
+          if (trimmed) rules.push({ selector: trimmed, block: buffer });
+        }
+      }
+      buffer = '';
+      inBlock = false;
+    } else {
+      buffer += ch;
+    }
+  }
+  return rules;
+}
+
+// Reads one declaration's value out of a rule's block, used alongside extractCssRules above.
+function readCssDeclaration(block: string, property: string): string | undefined {
+  const match = new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)`).exec(block);
+  return match ? match[1].trim() : undefined;
+}
+
+// Finds an element's own opening tag by id — good enough for this file's flat template markup,
+// used to assert a CSS hook's class is actually present on the element the rule targets.
+function findOpeningTagById(html: string, id: string): string {
+  const match = new RegExp(`<[a-zA-Z][^>]*\\sid="${id}"[^>]*>`).exec(html);
+  if (!match) throw new Error(`no element with id="${id}" found in template.html`);
+  return match[0];
+}
+
 // Strips line/block comments then extracts every quoted string literal's contents — good
 // enough to prove ui.ts never branches on a registered decoder id as a whole string literal
 // (exact equality, not a word-boundary substring match — 'hex-dump' must never be confused
@@ -257,6 +303,34 @@ describe('decode dapp — end-to-end tracer (0x68656c6c6f -> hello)', () => {
     expect(rawTabBtn.classList.contains('active')).toBe(true);
     expect(container.querySelector('#decode-tab-raw')!.classList.contains('active')).toBe(true);
     expect(container.querySelector('#decode-tab-result')!.classList.contains('active')).toBe(false);
+
+    cleanup();
+  });
+
+  // G-06-10: a fourth tab, "About" — same setActiveTab/tabButtons/tabPanels wiring the three
+  // existing tabs already use (ui.ts:822-825, 760-761), so no ui.ts change backs this. The
+  // test proves the wiring reaches a fourth button generically; it does not assert the prose,
+  // which is copy and would make every wording change a test edit (see test/dapps.test.ts for
+  // the version-label/manifest assertion instead).
+  it('has a fourth tab, About, wired through the same generic tab machinery', () => {
+    const { container, cleanup } = mount();
+    const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('#decode-tabs button'));
+    expect(buttons.length).toBe(4);
+    expect(buttons[3].textContent).toBe('About');
+
+    buttons[3].click();
+
+    const activePanels = Array.from(container.querySelectorAll('.tab-content.active'));
+    expect(activePanels.length).toBe(1);
+    expect(activePanels[0].id).toBe('decode-tab-info');
+    expect(container.querySelector('#decode-tab-result')!.classList.contains('active')).toBe(false);
+    expect(activePanels[0].textContent?.trim().length).toBeGreaterThan(0);
+
+    // Clicking Result returns — unchanged by the new tab (setActiveTab('result') after a
+    // decode run relies on this).
+    buttons[0].click();
+    expect(container.querySelector('#decode-tab-result')!.classList.contains('active')).toBe(true);
+    expect(container.querySelector('#decode-tab-info')!.classList.contains('active')).toBe(false);
 
     cleanup();
   });
@@ -555,6 +629,124 @@ describe('the generic DecodeNode tree renderer (Task 1)', () => {
     const sharedSelectors = extractCssSelectors(sharedCss);
     const overlap = [...decodeSelectors].filter((s) => sharedSelectors.has(s));
     expect(overlap).toEqual([]);
+  });
+});
+
+// G-06-5: the tree and the log each own their own horizontal overflow, as two INDEPENDENT
+// remedies for two independent root causes the diagnosis found (.planning/debug/g-06-5-tree-log-
+// overflow.md) — never as measured geometry, since jsdom has no layout engine and any assertion
+// about pixels would be a test that cannot fail for the reason it claims. Task 1 adds the tree
+// cases below; Task 2 adds two more log cases to this same block.
+describe('G-06-5 — the Result tree and the Log table each own their own horizontal overflow', () => {
+  it('the tree is a horizontal scroll container, and the hook it attaches through is still on the element', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const treeRule = rules.find((r) => r.selector === '.decode-tree');
+    expect(readCssDeclaration(treeRule?.block ?? '', 'overflow-x')).toBe('auto');
+
+    const template = loadTemplate();
+    const tag = findOpeningTagById(template, 'decode-tree');
+    expect(/\bclass="[^"]*\bdecode-tree\b[^"]*"/.test(tag)).toBe(true);
+  });
+
+  it('a deep node box has a min-content floor, so it cannot collapse to zero width and degenerate its row into a one-item-per-line column', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const nodeRule = rules.find((r) => r.selector === '.decode-tree-node');
+    expect(readCssDeclaration(nodeRule?.block ?? '', 'min-width')).toBe('min-content');
+  });
+
+  it('per-level indentation decays with depth: a deep descendant chain of .decode-tree-children carries a smaller, non-zero indent than the base rule', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const baseRule = rules.find((r) => r.selector === '.decode-tree-children');
+    const deepRule = rules.find((r) => {
+      const tokens = r.selector.split(' ');
+      return tokens.length >= 3 && tokens.every((t) => t === '.decode-tree-children');
+    });
+    expect(baseRule).toBeDefined();
+    expect(deepRule).toBeDefined();
+
+    const numeric = (v: string | undefined) => (v === undefined ? 0 : Number.parseFloat(v));
+    const baseTotal =
+      numeric(readCssDeclaration(baseRule!.block, 'margin-left')) +
+      numeric(readCssDeclaration(baseRule!.block, 'padding-left'));
+    const deepTotal =
+      numeric(readCssDeclaration(deepRule!.block, 'margin-left')) +
+      numeric(readCssDeclaration(deepRule!.block, 'padding-left'));
+
+    expect(deepTotal).toBeGreaterThan(0);
+    expect(deepTotal).toBeLessThan(baseTotal);
+  });
+
+  it('the scrollport sits on #decode-tree itself, never on a wrapper inside a rendered node', async () => {
+    const { container, cleanup } = mount();
+    const selector = container.querySelector<HTMLSelectElement>('#decode-selector')!;
+    const textarea = container.querySelector<HTMLTextAreaElement>('#decode-textarea')!;
+    const runBtn = container.querySelector<HTMLButtonElement>('#decode-run-btn')!;
+
+    selector.value = 'hex';
+    textarea.value = HEX_VECTOR;
+    runBtn.click();
+    await flush();
+
+    const tree = container.querySelector('#decode-tree')!;
+    expect(tree.children.length).toBe(1);
+    expect(tree.children[0].classList.contains('decode-tree-node')).toBe(true);
+
+    cleanup();
+  });
+
+  it('the log is a horizontal scroll container, and the hook it attaches through is still on the element', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const logRule = rules.find((r) => r.selector === '.decode-log');
+    expect(readCssDeclaration(logRule?.block ?? '', 'overflow-x')).toBe('auto');
+
+    const template = loadTemplate();
+    const tag = findOpeningTagById(template, 'decode-log');
+    expect(/\bclass="[^"]*\bdecode-log\b[^"]*"/.test(tag)).toBe(true);
+  });
+
+  it('the summary-row cells can break an unbreakable token, and the renderer actually writes the class the rule keys on', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const wrapRule = rules.find((r) => r.selector === '.decode-log-summary-row td');
+    expect(readCssDeclaration(wrapRule?.block ?? '', 'overflow-wrap')).toBe('anywhere');
+
+    const longPathEntry: LogEntry = {
+      timestamp: 1,
+      method: 'GET',
+      host: 'api.etherscan.io',
+      path: '/v2/api?chainid=1&module=contract&action=getabi&address=0x0000000000000000000000000000000000000000&apikey=redacted',
+      status: 200,
+      duration: 5,
+      attempt: 1,
+    };
+    const el = ui().renderLog([longPathEntry]);
+    expect(el.querySelector('.decode-log-summary-row')).not.toBeNull();
+  });
+});
+
+// G-06-9: the Log tab's three controls stop rendering as browser-default chrome by reusing the
+// shell's existing small action button (.copy-btn, components.css) rather than a fourth button
+// class — they then inherit Task 1's pressed state and sizing for free, and decode acquires no
+// control styling of its own beyond the layout correction below.
+describe("G-06-9 — the Log tab controls wear the shell's small action button", () => {
+  it('each of the three Log control buttons carries the shared .copy-btn class, queried by their existing ids so this case also proves the ids did not move', () => {
+    const template = loadTemplate();
+    for (const id of ['decode-log-clear-btn', 'decode-log-copy-json-btn', 'decode-log-copy-curl-btn']) {
+      const tag = findOpeningTagById(template, id);
+      expect(/\bclass="[^"]*\bcopy-btn\b[^"]*"/.test(tag)).toBe(true);
+    }
+  });
+
+  it('decode/style.css scopes a rule to .copy-btn inside .decode-log-controls that zeroes margin-top, since the shared component brings a margin meant for a different context', () => {
+    const css = readFileSync(resolve(__dirname, '../src/dapps/decode/style.css'), 'utf-8');
+    const rules = extractCssRules(css);
+    const marginResetRule = rules.find((r) => r.selector === '.decode-log-controls .copy-btn');
+    expect(marginResetRule).toBeDefined();
+    expect(readCssDeclaration(marginResetRule!.block, 'margin-top')).toBe('0');
   });
 });
 

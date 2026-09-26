@@ -100,6 +100,22 @@ describe('decode dapp — DEC-15 (a licence and a README, both present)', () => 
   });
 });
 
+describe('decode dapp — G-06-10 (the About tab version label matches the manifest)', () => {
+  // The version lives twice on purpose: once as the runtime source of truth (manifest.json),
+  // once as copy inside template.html for the About tab (there is no runtime read — see
+  // ui.ts's setActiveTab, which never touches manifest.json). This test is the only thing
+  // that keeps the two in step; reading both from disk here, rather than restating the number
+  // as a literal, is what stops the assertion itself going stale.
+
+  it("the template's version-label text contains the manifest's version field", () => {
+    const manifest = loadManifest('decode');
+    const template = readFileSync(resolve(SRC, 'dapps/decode/template.html'), 'utf-8');
+    const match = /class="version-label"[^>]*>([^<]+)</.exec(template);
+    expect(match, 'no .version-label element found in decode/template.html').not.toBeNull();
+    expect(match![1]).toContain(manifest.version);
+  });
+});
+
 describe('cic dapp — manifest dependencies', () => {
   const src = loadDappSource('cic');
   const manifest = loadManifest('cic');

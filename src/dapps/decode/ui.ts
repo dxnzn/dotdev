@@ -753,7 +753,6 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   const badge = container.querySelector<HTMLElement>('#decode-auto-badge');
   const logContainer = container.querySelector<HTMLElement>('#decode-log');
   const logClearBtn = container.querySelector<HTMLButtonElement>('#decode-log-clear-btn');
-  const shareBtn = container.querySelector<HTMLButtonElement>('#decode-share-btn');
   const shareZBtn = container.querySelector<HTMLButtonElement>('#decode-share-z-btn');
   const shareSizeEl = container.querySelector<HTMLElement>('#decode-share-size');
   const shareWarningEl = container.querySelector<HTMLElement>('#decode-share-warning');
@@ -1004,25 +1003,14 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
     return selector!.value === 'auto' ? resolvedAutoId : selector!.value;
   }
 
-  // D-19: the write happens ONLY on a press of one of the two presses named below — never on a
-  // keystroke, a paste, or a decode. The sole owner of the plain-link press: both the in-panel
-  // #decode-share-btn (below) and the header button's registered builder (immediately after)
-  // reach it, and nothing else does.
+  // D-19/G-06-7: the write happens ONLY on a press of pressPlainShare — never on a keystroke, a
+  // paste, or a decode. The in-panel button that used to call this directly is gone (G-06-7
+  // removed it as a duplicate of the shell header's own share control); the header's registered
+  // builder (handle.pressPlainShare, below) is now the sole caller.
   function pressPlainShare(): string {
     const url = core!.buildShareUrl(ownRoute, currentDecoderId(), textarea!.value, false);
     history.replaceState(null, '', url);
     return url;
-  }
-
-  const onShareClick = () => {
-    void (async () => {
-      const url = pressPlainShare();
-      await shareViaClipboard(url, shareBtn!);
-    })();
-  };
-  if (shareBtn) {
-    shareBtn.addEventListener('click', onShareClick);
-    listeners.push(() => shareBtn.removeEventListener('click', onShareClick));
   }
 
   // WR-06: compressForShare constructs `new CompressionStream('deflate-raw')` — on a browser
@@ -1108,9 +1096,13 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   raw?.replaceChildren(renderRawEmpty());
   updateShareSize();
 
-  // D-24/DEC-03: applies a share link's state once, at mount — never on a later keystroke or
-  // tab switch, and never itself running a decode (DEC-05): starting one unasked would mean
-  // opening someone else's link could kick off work its recipient never chose.
+  // D-24/DEC-03: applies a share link's state once, at mount — never on a later keystroke or tab
+  // switch, and — on its own — never running a decode: loading a payload is not the same act as
+  // deciding to run it. DEC-05 (amended by G-06-6/06-10): nothing requiring network runs until
+  // the user clicks Decode, UNLESS the recipient has themselves enabled auto-running shared links
+  // in Settings (default off). That decision is applyQuery's, immediately below, never this
+  // function's — this function only ever loads; whether a decode follows depends on the link's
+  // own submit request AND the recipient's own prior opt-in, checked together over there.
   function applyLoadedInput(input: string, decoderId: string | undefined) {
     textarea!.value = input;
     if (decoderId && registry!.get(decoderId)) {
@@ -1140,6 +1132,19 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // the LATEST one's result land.
   let applyGeneration = 0;
 
+  // G-06-6/06-10 (DEC-05 amendment): a link's submit=1 is a REQUEST, never itself consent — the
+  // sender composed the link, not the recipient, and cannot be expected to read a query
+  // parameter and understand what it costs. Consent is the recipient's own prior act: the
+  // 'autoRunSharedLinks' setting (src/plugins/links.ts), off by default. Read fresh on every
+  // applyQuery call (never cached) so a setting flipped in another tab while this one sits on an
+  // already-loaded link takes effect the next time a link is applied, matching how every other
+  // settings read in this file behaves. Deliberately uniform across every decoder — a network-
+  // capable decoder is not special-cased — because the ratified rule is "the recipient already
+  // agreed to this, for every decoder", not "this one decoder gets a lesser version of consent".
+  function shouldAutoRunSharedLink(q: DecodeQueryParams | undefined): boolean {
+    return q?.submit === '1' && settings.get('autoRunSharedLinks') === true;
+  }
+
   // D-21: the compressed parameter wins when both are present — it is the deliberate form,
   // fixed here in the consumer rather than left to whichever parameter happened to be read first.
   // Non-null assertions on `q` throughout: TS does not carry the outer `if`'s narrowing across
@@ -1147,6 +1152,7 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // and the guard above already returned if this mount's DOM refs were absent.
   function applyQuery(q: DecodeQueryParams | undefined) {
     const myApply = ++applyGeneration;
+    const autoRun = shouldAutoRunSharedLink(q);
     if (q?.z) {
       core!.decompressFromShare(q.z).then((result) => {
         // T-3-24: a route change during inflation must not write into a container the router
@@ -1161,9 +1167,20 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
           return;
         }
         applyLoadedInput(result.value, q!.decoder);
+        // G-06-6: only after a successful inflation, and only inside the SAME generation guard
+        // above — a superseded compressed link must not start a decode into a tree the router has
+        // already handed to someone else. Goes through the exact runDecode the Decode button and
+        // Ctrl/Cmd+Enter call — never a parallel path — so the abort controller, the stale-result
+        // marker, the log subscription, the row index and the tab reset all behave identically.
+        if (autoRun) void runDecode();
       });
     } else if (q?.data !== undefined) {
       applyLoadedInput(q!.data as string, q!.decoder);
+      // G-06-6: a plain (uncompressed) link's payload is already synchronously available here, so
+      // this is the affirmative-and-consented case's other half — no payload, no `data` branch
+      // entered at all, which is what makes submit=1-with-no-payload a no-op rather than a decode
+      // of the empty string.
+      if (autoRun) void runDecode();
     }
   }
 
@@ -1193,8 +1210,12 @@ function init(container: HTMLElement, dx: unknown, query?: DecodeQueryParams): D
   // directory). A host shell that wants its OWN header control to carry decode's plain share
   // link (this dotdev shell's src/main.ts does, via window.DxDecode.activeUi set by dapp.ts)
   // reaches through this handle rather than reimplementing D-19's decoder/textarea resolution
-  // externally, which would risk drifting from the in-panel button's own behaviour.
-  // pressPlainShare is the SAME function #decode-share-btn calls above — one owner, two callers.
+  // externally, which would risk drifting from the header button's own behaviour.
+  // G-06-7: this is now the ONLY path to a plain share link — the in-panel button that used to
+  // call pressPlainShare directly was removed as a duplicate of this seam. A host shell that
+  // registers nothing through it offers its users no way to copy a plain link at all (the
+  // compressed link, the byte readout and the over-length warning are unaffected — they stay
+  // in the panel because no host seam exists for them).
   handle.pressPlainShare = pressPlainShare;
   handle.revealShareFailure = (url: string) => revealCopyFallback(textarea!, url);
   return handle;

@@ -585,3 +585,96 @@ describe('build wiring — non-vendor script tags against non-dapp tsup entries'
     expect(positions).not.toEqual([...positions].sort((a, b) => a - b));
   });
 });
+
+// A brace-depth CSS-rule scanner good enough for this file's own small assertions — mirrors
+// test/decode-ui.test.ts's extractCssRules/readCssDeclaration (comments stripped, selector
+// whitespace normalised, `@media` preludes skipped since the buffer only ever holds "the text
+// since the last brace"). Kept local rather than shared: test/ has no shared fixture module, so
+// one convention read twice beats inventing a third.
+function extractCssRules(css: string): Array<{ selector: string; block: string }> {
+  const withoutComments = css.replace(/\/\*[\s\S]*?\*\//g, '');
+  const rules: Array<{ selector: string; block: string }> = [];
+  let buffer = '';
+  let currentSelector = '';
+  for (const ch of withoutComments) {
+    if (ch === '{') {
+      currentSelector = buffer.trim().replace(/\s+/g, ' ');
+      buffer = '';
+    } else if (ch === '}') {
+      if (currentSelector && !currentSelector.startsWith('@')) {
+        for (const sel of currentSelector.split(',')) {
+          const trimmed = sel.trim();
+          if (trimmed) rules.push({ selector: trimmed, block: buffer });
+        }
+      }
+      buffer = '';
+      currentSelector = '';
+    } else {
+      buffer += ch;
+    }
+  }
+  return rules;
+}
+
+function readCssDeclaration(block: string, property: string): string | undefined {
+  const match = new RegExp(`(?:^|;)\\s*${property}\\s*:\\s*([^;]+)`).exec(block);
+  return match ? match[1].trim() : undefined;
+}
+
+// G-06-8: the shell's first pressed state, and the base .btn-group size correction that makes
+// #decode-actions (the only bare .btn-group in the tree) usable without a --sm modifier. Rules
+// are asserted by relationship and structure, never by literal rem values or a literal selector
+// string — the exact size and the exact pressed-selector spelling are the executor's to choose.
+describe("components.css — btn-group sizing and the site's first pressed state (G-06-8)", () => {
+  const css = readFileSync(resolve(__dirname, '../src/styles/components.css'), 'utf-8');
+  const rules = extractCssRules(css);
+
+  it('the base .btn-group button rule declares both padding and font-size, since an unmodified .btn-group is otherwise unsized', () => {
+    const base = rules.findLast((r) => r.selector === '.btn-group button');
+    expect(base).toBeDefined();
+    expect(readCssDeclaration(base!.block, 'padding')).toBeDefined();
+    expect(readCssDeclaration(base!.block, 'font-size')).toBeDefined();
+  });
+
+  it("the base rule's vertical padding is strictly greater than .btn-group--sm button's, and --sm still exists", () => {
+    const base = rules.findLast((r) => r.selector === '.btn-group button');
+    const sm = rules.find((r) => r.selector === '.btn-group--sm button');
+    expect(sm).toBeDefined();
+    const basePad = Number.parseFloat(String(readCssDeclaration(base!.block, 'padding')).split(' ')[0]);
+    const smPad = Number.parseFloat(String(readCssDeclaration(sm!.block, 'padding')).split(' ')[0]);
+    expect(basePad).toBeGreaterThan(smPad);
+  });
+
+  it('at least one rule in the file contains :active, since this file had no pressed state at all before', () => {
+    const pressed = rules.filter((r) => r.selector.includes(':active'));
+    expect(pressed.length).toBeGreaterThan(0);
+  });
+
+  it('the pressed .btn-group rule appears after .btn-group button:hover:not(.active) and is at least as specific, so a press beats a hover', () => {
+    const hoverIndex = rules.findIndex((r) => r.selector === '.btn-group button:hover:not(.active)');
+    const pressedIndex = rules.findIndex(
+      (r) => r.selector.startsWith('.btn-group button') && r.selector.includes(':active'),
+    );
+    expect(hoverIndex).toBeGreaterThanOrEqual(0);
+    expect(pressedIndex).toBeGreaterThanOrEqual(0);
+    expect(pressedIndex).toBeGreaterThan(hoverIndex);
+
+    const conditionCount = (selector: string) => (selector.match(/:/g) ?? []).length;
+    expect(conditionCount(rules[pressedIndex].selector)).toBeGreaterThanOrEqual(
+      conditionCount(rules[hoverIndex].selector),
+    );
+  });
+
+  it('.btn-group--sm button still declares a smaller padding than the base — the CIC and tpl no-regression guard', () => {
+    const base = rules.findLast((r) => r.selector === '.btn-group button');
+    const sm = rules.find((r) => r.selector === '.btn-group--sm button');
+    const basePad = Number.parseFloat(String(readCssDeclaration(base!.block, 'padding')).split(' ')[0]);
+    const smPad = Number.parseFloat(String(readCssDeclaration(sm!.block, 'padding')).split(' ')[0]);
+    expect(smPad).toBeLessThan(basePad);
+  });
+
+  it('.copy-btn has a pressed state too', () => {
+    const copyPressed = rules.find((r) => r.selector.startsWith('.copy-btn') && r.selector.includes(':active'));
+    expect(copyPressed).toBeDefined();
+  });
+});
