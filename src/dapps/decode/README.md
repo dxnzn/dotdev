@@ -480,6 +480,8 @@ its 06-05 close.
 | 06-04 | 17 | 133,239 | 32,732 |
 | 06-05 | 18 | 145,488 | 35,543 |
 | **06-06 (this plan, phase close)** | **18** | **148,388** | **36,171** |
+| 06-UAT gap closure (the nineteenth module lands) | 19 | 154,701 | 37,952 |
+| **v1.2 milestone close (after PR #1's review fixes)** | **19** | **155,443** | **38,063** |
 
 Measured against the tree at phase close, *after* the three `fix(06-review)` commits (CR-01,
 CR-02, WR-05). An earlier revision of this section reported 148,138 / 36,175, taken at the
@@ -489,6 +491,16 @@ is recorded rather than silently overwritten because a reported metric that is q
 is no more trustworthy than a gate that is quietly raised — which is the whole reason DEC-16 is
 reported rather than gated. Note gzip is not monotonic in input size: the concatenated figure
 fell by 4 bytes while the uncompressed total rose by 250.
+
+**The two rows after the phase close**, recorded the same way and for the same reason a stale
+figure was corrected rather than overwritten above. The first is the nineteenth module,
+`creation-code.js`, written to close a UAT gap after the phase-close measurement was taken. The
+second is the milestone-close figure, measured after the eleven commits that answered PR #1's two
+code reviews: +742 bytes uncompressed and +111 gzipped, spread across `abi-source.js`, `cache.js`,
+`transport.js`, `tx-source.js`, `creation-code.js`, `ui.js` and `decoders-eth-calldata.js`. No
+module was added or removed. Reproduce either row with the command above. **155,443 / 38,063 is
+the final reported v1.2 figure** — over the retired 128,000/32,000 pair, reported and not gated,
+exactly as the DEC-16 amendment provides for.
 
 **The shedding order and its reserve trigger** (recorded 06-01, restated here at the close, per
 this plan's own obligation): least user-visible first — the persistent cache tier, then the
