@@ -142,12 +142,17 @@ prepare-site: build
 	@touch $(SITE)/.nojekyll
 	@echo "Site prepared in $(SITE)/"
 
+# The gh-pages worktree shares .git/hooks with the main tree but carries only _site,
+# so the pre-commit framework aborts on the missing config. Skipping the hooks is safe
+# here: the prerequisites above already linted and tested the source this output came
+# from. A prune first clears a registration stranded by any earlier failed deploy.
 deploy: vendor build test prepare-site
 	@echo "Deploying to gh-pages..."
 	@CURRENT_SHA=$$(git rev-parse --short HEAD) && \
 	DEPLOY_MSG="Deploy from $$CURRENT_SHA on $$(date -u +%Y-%m-%dT%H:%M:%SZ)" && \
 	TMPDIR=$$(mktemp -d) && \
-	trap "rm -rf $$TMPDIR" EXIT && \
+	trap "git worktree remove --force $$TMPDIR/worktree 2>/dev/null; rm -rf $$TMPDIR" EXIT && \
+	git worktree prune && \
 	if git rev-parse --verify gh-pages >/dev/null 2>&1; then \
 		git worktree add --quiet "$$TMPDIR/worktree" gh-pages; \
 	else \
@@ -160,7 +165,7 @@ deploy: vendor build test prepare-site
 	if git diff --cached --quiet; then \
 		echo "No changes to deploy."; \
 	else \
-		git commit -m "$$DEPLOY_MSG" && \
+		PRE_COMMIT_ALLOW_NO_CONFIG=1 git commit --no-verify -m "$$DEPLOY_MSG" && \
 		git push origin gh-pages --force && \
 		echo "Deployed to gh-pages."; \
 	fi && \
