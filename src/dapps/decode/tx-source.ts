@@ -159,7 +159,7 @@ async function txsEndpointLeg(
   // Task 0's transport already resolves a JSON-RPC error object (any code) to `ok: false` with
   // `error` set to the error's own message, and a rate-limited one to a retried, eventually-
   // surfaced failure — what arrives here, if `!response.ok`, is what survived that. Nothing left
-  // to inspect on the body for this leg beyond the null-result ("missed") case below.
+  // to inspect on the body for this leg beyond the result member examined below.
   if (!response.ok) {
     return { kind: 'error', reason: response.error ?? 'the transaction request failed' };
   }
@@ -168,7 +168,16 @@ async function txsEndpointLeg(
   if (!body || typeof body !== 'object') {
     return { kind: 'error', reason: 'the endpoint returned a malformed response' };
   }
-  if (body.result === null || body.result === undefined) {
+  // `result: null` is the JSON-RPC answer for "no such transaction" — a real answer about the HASH,
+  // and the only shape that earns 'missed' (the FINAL outcome, which suppresses the explorer leg).
+  // No `result` member at all, with no `error` either (the transport would have mapped that to
+  // `ok: false` above), is not an answer: it is a health page, a JSON array, or a bare envelope from
+  // something that is not a JSON-RPC endpoint. Reporting that as 'missed' returned before the
+  // configured explorer key was ever consulted, and called a real transaction unknown.
+  if (body.result === undefined) {
+    return { kind: 'error', reason: 'the endpoint returned a malformed response' };
+  }
+  if (body.result === null) {
     return { kind: 'missed' };
   }
   return txsParseTransaction(body.result);
@@ -218,7 +227,14 @@ async function txsExplorerLeg(
   if (!body || typeof body !== 'object') {
     return { kind: 'error', reason: 'the explorer returned a malformed response' };
   }
-  if (body.result === null || body.result === undefined) {
+  // The same distinction the endpoint leg draws, for the same reason: `result: null` is a real
+  // answer about the hash, a missing `result` member is not an answer at all — and a 'missed' here
+  // reaches the person as "unknown or pending" with no reason attached, hiding the fact that what
+  // answered was not speaking JSON-RPC.
+  if (body.result === undefined) {
+    return { kind: 'error', reason: 'the explorer returned a malformed response' };
+  }
+  if (body.result === null) {
     return { kind: 'missed' };
   }
   return txsParseTransaction(body.result);

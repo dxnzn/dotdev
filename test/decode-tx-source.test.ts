@@ -253,6 +253,37 @@ describe('txsCreateAdapter — the endpoint leg', () => {
     expect(result.reason).toBeUndefined();
   });
 
+  // A 200 with no `result` member AND no `error` member is not a JSON-RPC answer at all — a
+  // reverse-proxy health page, a JSON array, a bare envelope. Treated as 'missed' it was the FINAL
+  // answer, so the configured explorer key was never consulted and a real transaction was reported
+  // unknown.
+  it('a 200 body with neither result nor error falls through to the explorer instead of missing', async () => {
+    const { transport, requests } = stubTransportSequence([
+      () => okResponse({ ok: true }),
+      () => okResponse(rpcResult()),
+    ]);
+    const adapter = txSource().txsCreateAdapter(
+      transport,
+      stubSettings({ rpcUrl: RPC_URL, etherscanApiKey: API_KEY, chainId: 1 }),
+    );
+
+    const result = await adapter.getTransaction(HASH);
+
+    expect(requests).toHaveLength(2);
+    expect(new URL(requests[1].url).host).toBe('api.etherscan.io');
+    expect(result.unavailable).toBe(false);
+  });
+
+  it('a resultless body with no explorer configured names the malformed response rather than reporting a miss', async () => {
+    const { transport } = stubTransport(() => okResponse({ jsonrpc: '2.0', id: 1 }));
+    const adapter = txSource().txsCreateAdapter(transport, stubSettings({ rpcUrl: RPC_URL }));
+
+    const result = await adapter.getTransaction(HASH);
+
+    expect(result.unavailable).toBe(true);
+    expect(result.reason).toContain('malformed');
+  });
+
   it('a transport-level failure reports could-not-ask with the transport error as the reason', async () => {
     const { transport } = stubTransport(() => failResponse('the endpoint refused a browser request'));
     const adapter = txSource().txsCreateAdapter(transport, stubSettings({ rpcUrl: RPC_URL }));
