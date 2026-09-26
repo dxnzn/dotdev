@@ -40,12 +40,16 @@ Phase 6 added four more modules:
   blocking the initial render.
 - `abi-source.ts` (`window.DxDecode.abiSource`) — the verified-ABI source: fetches a target's
   source-code entry through the shared transport, follows a proxy's implementation one level
-  (NET-09), and feeds both selector resolution's verified rung and, since this plan, contract-name
-  labelling.
+  (NET-09) — including when the proxy's own ABI exposes no callable function at all, which is the
+  ordinary minimal-proxy shape — and feeds both selector resolution's verified rung and, since this
+  plan, contract-name labelling.
 - `cache.ts` (`window.DxDecode.cache`) — the two-tier (in-memory plus browser-local persistence)
   verified-ABI cache behind the portability guard's third named exemption — the annotators' name
   walk is what makes every distinct address in a decoded tree cost one lookup per mounted session,
-  not one per node.
+  not one per node. Three write tiers: `both` for a contract's own verified ABI (durable), `memory`
+  for an answer that must not outlive the session — a proxy's merged implementation ABI, since the
+  implementation is exactly what an upgrade replaces — and `negative` for a contract asked about and
+  genuinely not verified.
 - `tx-source.ts` (`window.DxDecode.txSource`) — the transaction lookup: the user's own RPC
   endpoint first, the explorer's proxy module second — what a pasted 32-byte transaction hash
   resolves through.

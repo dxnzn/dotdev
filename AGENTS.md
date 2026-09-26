@@ -159,7 +159,10 @@ make deploy    # vendor, build, test, then push _site/ to gh-pages
   query separated by a slash) does. Removing the canonicalizer breaks every hash route on this
   site that carries a query string, not just decode's; `test/decode-route.test.ts` records both
   halves of the reason (the framework's own router failing to resolve the non-slash form, and
-  the canonicalizer converting it). See `tmp/dxkit-bug-router-hash-query.md`.
+  the canonicalizer converting it). It is registered on **both** `popstate` and `hashchange`,
+  because the vendored router listens on both and a back/forward traversal fires `popstate` first
+  — with only the `hashchange` registration that traversal resolved to no manifest and unmounted
+  the dapp instead of delivering a subpath update. See `tmp/dxkit-bug-router-hash-query.md`.
 - **`data-layout` is set twice, deliberately.** `src/index.html` sets it
   synchronously before first paint to avoid FOUC; `src/shell.ts` keeps it in sync
   afterwards. Change one and the other has to follow.
