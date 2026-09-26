@@ -30,6 +30,7 @@ var DxTheme = (() => {
     let dx = null;
     let settingsListener = null;
     let syncing = false;
+    let storageWarned = false;
     const modeHandlers = /* @__PURE__ */ new Set();
     const themeHandlers = /* @__PURE__ */ new Set();
     const mql = typeof window !== "undefined" ? window.matchMedia("(prefers-color-scheme: dark)") : null;
@@ -48,7 +49,17 @@ var DxTheme = (() => {
     function canUseStorage() {
       try {
         return typeof localStorage !== "undefined" && typeof localStorage.setItem === "function";
-      } catch {
+      } catch (err) {
+        if (!storageWarned && dx) {
+          storageWarned = true;
+          dx.events.emit("dx:error", {
+            source: "plugin:theme:storage:unavailable",
+            error: new Error(
+              `Theme storage is unavailable (opaque origin or similar) \u2014 degrading to in-memory state: ${err instanceof Error ? err.message : String(err)}`,
+              { cause: err }
+            )
+          });
+        }
         return false;
       }
     }

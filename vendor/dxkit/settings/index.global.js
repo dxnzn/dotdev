@@ -32,10 +32,21 @@ var DxSettings = (() => {
     const dappHandlers = /* @__PURE__ */ new Map();
     let dx = null;
     let disabledListener = null;
+    let storageWarned = false;
     function canUseStorage() {
       try {
         return typeof localStorage !== "undefined" && typeof localStorage.setItem === "function";
-      } catch {
+      } catch (err) {
+        if (!storageWarned && dx) {
+          storageWarned = true;
+          dx.events.emit("dx:error", {
+            source: "plugin:settings:storage:unavailable",
+            error: new Error(
+              `Settings storage is unavailable (opaque origin or similar) \u2014 degrading to in-memory state: ${err instanceof Error ? err.message : String(err)}`,
+              { cause: err }
+            )
+          });
+        }
         return false;
       }
     }

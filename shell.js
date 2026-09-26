@@ -18,12 +18,14 @@ function initShellChrome() {
   wireDropdowns();
   wireShareButton();
   wireThemePanel(dx, theme);
+  wireSettingsButton(dx);
+  window.DnznWallet?.init(dx);
   wireNavigation(dx);
+  dx.events.on("dx:dapp:enabled", () => refreshNavMenu(dx));
+  dx.events.on("dx:dapp:disabled", () => refreshNavMenu(dx));
   updateThemeExtras(theme.getTheme(), theme.getResolvedMode());
 }
-function renderHeader(_dx, manifests) {
-  const headerEl = document.getElementById("shell-header");
-  if (!headerEl) return;
+function buildNavHTML(manifests) {
   const groups = {};
   for (const m of manifests) {
     if (m.nav.hidden) continue;
@@ -48,6 +50,12 @@ function renderHeader(_dx, manifests) {
       navHTML += `<a href="${href}" data-route="${m.route}">${m.nav.label}</a>`;
     }
   }
+  return navHTML;
+}
+function renderHeader(_dx, manifests) {
+  const headerEl = document.getElementById("shell-header");
+  if (!headerEl) return;
+  const navHTML = buildNavHTML(manifests);
   headerEl.className = "anim-in";
   headerEl.innerHTML = `
     <div class="app-dropdown" id="app-dropdown">
@@ -80,9 +88,15 @@ function renderHeader(_dx, manifests) {
           <button data-scheme="zorgz-4065"><span class="theme-panel-swatch" style="background:#808080"></span>zorgz-4065</button>
         </div>
       </div>
-      <button class="wallet-btn" id="wallet-btn" title="Connect wallet" disabled>
-        <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><rect x="15" y="13" width="4" height="3" rx="1"/></svg>
+      <button class="settings-btn" id="settings-btn" title="Settings">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
       </button>
+      <div class="wallet-panel" id="wallet-panel">
+        <button class="wallet-btn" id="wallet-btn" title="Wallet">
+          <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="14" rx="2"/><path d="M2 10h20"/><rect x="15" y="13" width="4" height="3" rx="1"/></svg>
+        </button>
+        <div class="wallet-menu" id="wallet-menu"></div>
+      </div>
     </div>`;
 }
 function renderFooter() {
@@ -90,38 +104,62 @@ function renderFooter() {
   if (!footerEl) return;
   footerEl.innerHTML = `by <strong>Denizen.</strong> // dnzn.wei`;
 }
-function wireDropdowns() {
-  const appTrigger = document.getElementById("app-trigger");
-  const appDropdown = document.getElementById("app-dropdown");
-  const themePanel = document.getElementById("theme-panel");
-  const themeTrigger = document.getElementById("theme-panel-trigger");
-  if (appTrigger && appDropdown) {
-    appTrigger.addEventListener("click", (e) => {
-      e.stopPropagation();
-      if (themePanel) themePanel.classList.remove("open");
-      appDropdown.classList.toggle("open");
-    });
+function dropdownEntries() {
+  return [
+    { wrapper: document.getElementById("app-dropdown"), trigger: document.getElementById("app-trigger") },
+    { wrapper: document.getElementById("theme-panel"), trigger: document.getElementById("theme-panel-trigger") },
+    { wrapper: document.getElementById("wallet-panel"), trigger: document.getElementById("wallet-btn") }
+  ].filter((entry) => entry.wrapper && entry.trigger);
+}
+function closeAllDropdowns() {
+  for (const entry of dropdownEntries()) {
+    entry.wrapper.classList.remove("open");
+    entry.trigger.setAttribute("aria-expanded", "false");
   }
-  if (themeTrigger && themePanel) {
-    themeTrigger.addEventListener("click", (e) => {
+}
+function wireDropdowns() {
+  for (const entry of dropdownEntries()) {
+    const { wrapper, trigger } = entry;
+    trigger.setAttribute("aria-haspopup", "true");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.addEventListener("click", (e) => {
       e.stopPropagation();
-      if (appDropdown) appDropdown.classList.remove("open");
-      themePanel.classList.toggle("open");
+      const wasOpen = wrapper.classList.contains("open");
+      closeAllDropdowns();
+      if (!wasOpen) {
+        wrapper.classList.add("open");
+        trigger.setAttribute("aria-expanded", "true");
+      }
     });
   }
   document.addEventListener("click", () => {
-    if (appDropdown) appDropdown.classList.remove("open");
-    if (themePanel) themePanel.classList.remove("open");
+    closeAllDropdowns();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const open = dropdownEntries().find((entry) => entry.wrapper.classList.contains("open"));
+    if (!open) return;
+    closeAllDropdowns();
+    open.trigger.focus();
   });
 }
 function wireShareButton() {
   const shareBtn = document.getElementById("share-btn");
   if (!shareBtn) return;
   shareBtn.addEventListener("click", function() {
+    if (typeof navigator.clipboard?.writeText !== "function") return;
     navigator.clipboard.writeText(window.location.href).then(() => {
       this.classList.add("copied");
       setTimeout(() => this.classList.remove("copied"), 1500);
-    });
+    }).catch(() => void 0);
+  });
+}
+function wireSettingsButton(dx) {
+  const settingsBtn = document.getElementById("settings-btn");
+  if (!settingsBtn) return;
+  settingsBtn.addEventListener("click", () => {
+    closeAllDropdowns();
+    dx.router.navigate("/settings");
   });
 }
 function wireThemePanel(dx, theme) {
@@ -177,30 +215,33 @@ const DAPP_TITLES = {
   projects: "DNZN // PROJECTS",
   support: "DNZN // SUPPORT",
   cic: "DNZN // CIC",
-  tpl: "DNZN // TPL"
+  decode: "DNZN // DECODE",
+  tpl: "DNZN // TPL",
+  settings: "DNZN // SETTINGS"
 };
-function wireNavigation(dx) {
-  function updateActiveNav() {
-    const currentPath = dx.router.getCurrentPath();
-    document.querySelectorAll("#app-menu a[data-route]").forEach((link) => {
-      const route = link.dataset.route;
-      const isActive = currentPath === route || currentPath.startsWith(`${route}/`);
-      link.classList.toggle("active", isActive);
-    });
-    const manifests = dx.getEnabledManifests();
-    let matched = null;
-    for (const m of manifests) {
-      if (currentPath === m.route || currentPath.startsWith(`${m.route}/`)) {
-        if (!matched || m.route.length > matched.route.length) matched = m;
-      }
+function updateActiveNav(dx) {
+  const currentPath = dx.router.getCurrentPath();
+  document.querySelectorAll("#app-menu a[data-route]").forEach((link) => {
+    const route = link.dataset.route;
+    const isActive = currentPath === route || currentPath.startsWith(`${route}/`);
+    link.classList.toggle("active", isActive);
+  });
+  document.getElementById("settings-btn")?.classList.toggle("active", currentPath === "/settings");
+  const manifests = dx.getEnabledManifests();
+  let matched = null;
+  for (const m of manifests) {
+    if (currentPath === m.route || currentPath.startsWith(`${m.route}/`)) {
+      if (!matched || m.route.length > matched.route.length) matched = m;
     }
-    const title = matched ? DAPP_TITLES[matched.id] || "DNZN // DEV" : "DNZN // DEV";
-    const h1 = document.querySelector(".app-dropdown-trigger h1");
-    if (h1) h1.textContent = title;
-    document.title = title;
-    const wide = matched ? matched.route.startsWith("/tools/") : false;
-    document.documentElement.setAttribute("data-layout", wide ? "wide" : "narrow");
   }
+  const title = matched ? DAPP_TITLES[matched.id] || "DNZN // DEV" : "DNZN // DEV";
+  const h1 = document.querySelector(".app-dropdown-trigger h1");
+  if (h1) h1.textContent = title;
+  document.title = title;
+  const wide = matched ? matched.route.startsWith("/tools/") : false;
+  document.documentElement.setAttribute("data-layout", wide ? "wide" : "narrow");
+}
+function wireNavLinks(dx) {
   document.querySelectorAll("#app-menu a[data-route]").forEach((link) => {
     link.addEventListener("click", (e) => {
       e.preventDefault();
@@ -208,6 +249,16 @@ function wireNavigation(dx) {
       document.getElementById("app-dropdown")?.classList.remove("open");
     });
   });
-  dx.events.on("dx:route:changed", updateActiveNav);
-  updateActiveNav();
+}
+function wireNavigation(dx) {
+  wireNavLinks(dx);
+  dx.events.on("dx:route:changed", () => updateActiveNav(dx));
+  updateActiveNav(dx);
+}
+function refreshNavMenu(dx) {
+  const appMenu = document.getElementById("app-menu");
+  if (!appMenu) return;
+  appMenu.innerHTML = buildNavHTML(dx.getEnabledManifests());
+  wireNavLinks(dx);
+  updateActiveNav(dx);
 }

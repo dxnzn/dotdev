@@ -26,7 +26,10 @@ var DxKit = (() => {
     createLifecycleManager: () => createLifecycleManager,
     createPluginRegistry: () => createPluginRegistry,
     createRouter: () => createRouter,
-    createShell: () => createShell
+    createShell: () => createShell,
+    defaultScriptLoader: () => defaultScriptLoader,
+    defaultStyleLoader: () => defaultStyleLoader,
+    defaultTemplateLoader: () => defaultTemplateLoader
   });
 
   // src/events.ts
@@ -132,6 +135,7 @@ var DxKit = (() => {
   }
 
   // src/lifecycle.ts
+  var NOTHING_CAPTURED = /* @__PURE__ */ Symbol("lifecycle:inline-script:nothing-captured");
   function isTimeoutActive(timeoutMs) {
     return timeoutMs > 0 && Number.isFinite(timeoutMs);
   }
@@ -254,6 +258,16 @@ var DxKit = (() => {
       }
     };
   }
+  var DOCUMENT_SNIFF = /^(?:\uFEFF)?(?:\s|<!--[\s\S]*?-->)*<(?:!doctype\s+html\b|html\b)/i;
+  function extractDocumentTemplate(html, headAllowlist) {
+    if (!DOCUMENT_SNIFF.test(html)) return html;
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const allowed = new Set(headAllowlist.map((name) => name.toLowerCase()));
+    const keptHead = doc.head ? Array.from(doc.head.children).filter((child) => allowed.has(child.tagName.toLowerCase())) : [];
+    const headHtml = keptHead.map((child) => child.outerHTML).join("");
+    const bodyHtml = doc.body ? doc.body.innerHTML : "";
+    return headHtml + bodyHtml;
+  }
   function createLifecycleManager(events, options = {}) {
     const timeoutMs = options.timeout ?? 3e4;
     const loadScript = options.scriptLoader ? withTimeout(options.scriptLoader, timeoutMs, "script") : defaultScriptLoader(timeoutMs);
@@ -261,6 +275,9 @@ var DxKit = (() => {
     const loadTemplateUncached = options.templateLoader ? withTimeout(options.templateLoader, timeoutMs, "template") : defaultTemplateLoader(timeoutMs);
     const hasPlugin = options.hasPlugin ?? (() => true);
     const sanitizeTemplate = options.sanitizeTemplate ? withSanitizeTimeout(options.sanitizeTemplate, timeoutMs) : void 0;
+    const extractDocument = options.documentTemplates?.extractDocument === true;
+    const headAllowlist = [...options.documentTemplates?.headAllowlist ?? ["style", "script"]];
+    const executeInlineScripts = options.documentTemplates?.executeInlineScripts === true;
     let currentDappId = null;
     let mountGeneration = 0;
     let inFlightMountId = null;
@@ -330,6 +347,9 @@ var DxKit = (() => {
           clearOwnedInFlightMarker();
           return false;
         }
+        if (extractDocument) {
+          html = extractDocumentTemplate(html, headAllowlist);
+        }
         if (sanitizeTemplate) {
           let sanitized;
           try {
@@ -351,6 +371,61 @@ var DxKit = (() => {
           container.innerHTML = sanitized;
         } else {
           container.innerHTML = html;
+        }
+        if (executeInlineScripts) {
+          const templateScripts = Array.from(container.querySelectorAll("script"));
+          for (let index = 0; index < templateScripts.length; index++) {
+            const script = templateScripts[index];
+            const rawSrc = script.getAttribute("src");
+            if (rawSrc) {
+              script.remove();
+              try {
+                await loadScript(rawSrc);
+              } catch (err) {
+                if (!isStale()) {
+                  events.emit("dx:error", {
+                    source: `lifecycle:${manifest.id}:inline-script`,
+                    error: err instanceof Error ? err : new Error(String(err))
+                  });
+                }
+              }
+              if (isStale()) {
+                clearOwnedInFlightMarker();
+                return false;
+              }
+              continue;
+            }
+            const replacement = document.createElement("script");
+            const type = script.getAttribute("type");
+            if (type !== null) replacement.setAttribute("type", type);
+            replacement.textContent = script.textContent;
+            let thrown = NOTHING_CAPTURED;
+            const onWindowError = (event) => {
+              if (thrown === NOTHING_CAPTURED) thrown = event.error ?? new Error(event.message);
+            };
+            window.addEventListener("error", onWindowError);
+            try {
+              script.replaceWith(replacement);
+            } catch (err) {
+              if (thrown === NOTHING_CAPTURED) thrown = err;
+            } finally {
+              window.removeEventListener("error", onWindowError);
+            }
+            if (thrown !== NOTHING_CAPTURED && !isStale()) {
+              const detail = thrown instanceof Error ? thrown.message : String(thrown);
+              events.emit("dx:error", {
+                source: `lifecycle:${manifest.id}:inline-script`,
+                error: new Error(
+                  `Inline script #${index} in dapp ${manifest.id}'s template failed during execution: ${detail}`,
+                  { cause: thrown }
+                )
+              });
+            }
+            if (isStale()) {
+              clearOwnedInFlightMarker();
+              return false;
+            }
+          }
         }
       }
       if (manifest.dependencies?.length) {
@@ -374,22 +449,24 @@ var DxKit = (() => {
           }
         }
       }
-      try {
-        await loadScript(manifest.entry);
-      } catch (err) {
-        if (!isStale()) {
-          events.emit("dx:error", {
-            source: `lifecycle:${manifest.id}`,
-            error: err instanceof Error ? err : new Error(String(err))
-          });
-          container.innerHTML = "";
+      if (manifest.entry) {
+        try {
+          await loadScript(manifest.entry);
+        } catch (err) {
+          if (!isStale()) {
+            events.emit("dx:error", {
+              source: `lifecycle:${manifest.id}`,
+              error: err instanceof Error ? err : new Error(String(err))
+            });
+            container.innerHTML = "";
+          }
+          clearOwnedInFlightMarker();
+          return false;
         }
-        clearOwnedInFlightMarker();
-        return false;
-      }
-      if (isStale()) {
-        clearOwnedInFlightMarker();
-        return false;
+        if (isStale()) {
+          clearOwnedInFlightMarker();
+          return false;
+        }
       }
       currentDappId = manifest.id;
       clearOwnedInFlightMarker();
@@ -579,8 +656,29 @@ var DxKit = (() => {
       // clobber the registry-backed check and disable required-plugin enforcement.
       hasPlugin: (name) => registry.has(name)
     });
+    function probeHistoryModeUsable() {
+      const capturedState = history.state;
+      const capturedHref = location.href;
+      let rewritten = false;
+      try {
+        history.replaceState(capturedState, "", "__dx-probe/__dx-probe");
+        rewritten = true;
+      } catch {
+        return false;
+      } finally {
+        if (rewritten) {
+          try {
+            history.replaceState(capturedState, "", capturedHref);
+          } catch {
+          }
+        }
+      }
+      return true;
+    }
+    const effectiveMode = mode !== "hash" && !probeHistoryModeUsable() ? "hash" : mode;
+    let pushstateFallbackEmitted = false;
     let manifests = [];
-    let router = createRouter({ mode, basePath, manifests: [] });
+    let router = createRouter({ mode: effectiveMode, basePath, manifests: [] });
     let mountContainer = null;
     let routeUnsub = null;
     let initialized = false;
@@ -619,7 +717,7 @@ var DxKit = (() => {
         routeUnsub = null;
       }
       router.destroy();
-      router = createRouter({ mode, basePath, manifests: getEnabledManifests() });
+      router = createRouter({ mode: effectiveMode, basePath, manifests: getEnabledManifests() });
       routeUnsub = router.onRouteChange(handleRouteChange);
       if (currentDapp) {
         const stillEnabled = getEnabledManifests().some((m) => m.id === currentDapp);
@@ -675,8 +773,19 @@ var DxKit = (() => {
       disableDapp,
       isDappEnabled
     };
+    function coerceManifestArray(value, messagePrefix) {
+      if (Array.isArray(value)) return value;
+      events.emit("dx:error", {
+        source: "shell:manifest",
+        error: new Error(
+          // typeof null is 'object' — disambiguate explicitly, mirrors ROB-05's existing check.
+          `${messagePrefix} \u2014 expected an array, got ${value === null ? "null" : typeof value}`
+        )
+      });
+      return null;
+    }
     function isValidManifest(m) {
-      return m && typeof m.id === "string" && typeof m.route === "string" && typeof m.entry === "string" && m.nav && typeof m.nav.label === "string";
+      return m && typeof m.id === "string" && typeof m.route === "string" && (typeof m.entry === "string" && m.entry !== "" || typeof m.template === "string" && m.template !== "") && m.nav && typeof m.nav.label === "string";
     }
     async function loadDappManifest(entry) {
       try {
@@ -694,7 +803,7 @@ var DxKit = (() => {
           events.emit("dx:error", {
             source: "shell:manifest",
             error: new Error(
-              `Invalid manifest from ${entry.manifest} \u2014 missing required fields (id, route, entry, nav.label)`
+              `Invalid manifest from ${entry.manifest} \u2014 missing required fields (id, route, entry or template, nav.label)`
             )
           });
           return null;
@@ -715,12 +824,18 @@ var DxKit = (() => {
       }
     }
     async function loadManifests() {
-      if (dappEntries?.length) {
-        const results = await Promise.all(dappEntries.map(loadDappManifest));
-        return results.filter((m) => m !== null);
+      if (dappEntries != null) {
+        const coerced = coerceManifestArray(dappEntries, "Invalid dapps config");
+        if (coerced === null) return [];
+        if (coerced.length) {
+          const results = await Promise.all(coerced.map(loadDappManifest));
+          return results.filter((m) => m !== null);
+        }
       }
-      if (inlineManifests) {
-        return inlineManifests;
+      if (inlineManifests != null) {
+        const coerced = coerceManifestArray(inlineManifests, "Invalid manifests config");
+        if (coerced === null) return [];
+        return coerced;
       }
       try {
         const res = await fetch(registryUrl);
@@ -735,18 +850,9 @@ var DxKit = (() => {
           return [];
         }
         const parsed = await res.json();
-        if (!Array.isArray(parsed)) {
-          events.emit("dx:error", {
-            source: "shell:manifest",
-            error: new Error(
-              // `typeof null` is 'object', so disambiguate null explicitly — a null body and an
-              // object-wrapped registry ({ manifests: [...] }) are the two common misconfigurations.
-              `Failed to load registry from ${registryUrl} \u2014 expected a JSON array of manifests, got ${parsed === null ? "null" : typeof parsed}`
-            )
-          });
-          return [];
-        }
-        return parsed;
+        const coerced = coerceManifestArray(parsed, `Failed to load registry from ${registryUrl}`);
+        if (coerced === null) return [];
+        return coerced;
       } catch (err) {
         if (registryUrlExplicit) {
           events.emit("dx:error", {
@@ -777,20 +883,31 @@ var DxKit = (() => {
           events.emit("dx:error", {
             source: "shell:manifest",
             error: new Error(
-              `Invalid manifest "${m?.id ?? "unknown"}" \u2014 missing required fields (id, route, entry, nav.label)`
+              `Invalid manifest "${m?.id ?? "unknown"}" \u2014 missing required fields (id, route, entry or template, nav.label)`
             )
           });
           continue;
         }
-        const normalizedRoute = normalizeRoute(m.route);
+        let working = m;
+        for (const field of ["entry", "template"]) {
+          const value = working[field];
+          if (value !== void 0 && typeof value !== "string") {
+            working = { ...working, [field]: void 0 };
+            events.emit("dx:error", {
+              source: "shell:manifest",
+              error: new Error(`Manifest "${m.id}" has a non-string "${field}" \u2014 dropped`)
+            });
+          }
+        }
+        const normalizedRoute = normalizeRoute(working.route);
         if (normalizedRoute === null) {
           events.emit("dx:error", {
             source: "shell:route",
-            error: new Error(`Manifest "${m.id}" has an empty or whitespace-only route \u2014 discarded`)
+            error: new Error(`Manifest "${working.id}" has an empty or whitespace-only route \u2014 discarded`)
           });
           continue;
         }
-        validated.push(normalizedRoute === m.route ? m : { ...m, route: normalizedRoute });
+        validated.push(normalizedRoute === working.route ? working : { ...working, route: normalizedRoute });
       }
       const seenRoutes = /* @__PURE__ */ new Map();
       for (const m of validated) {
@@ -810,6 +927,15 @@ var DxKit = (() => {
     }
     async function init() {
       if (initialized) return;
+      if (effectiveMode !== mode && !pushstateFallbackEmitted) {
+        pushstateFallbackEmitted = true;
+        events.emit("dx:error", {
+          source: "shell:router:pushstate",
+          error: new Error(
+            "History-mode routing is unusable in this context (opaque origin) \u2014 falling back to hash-mode navigation."
+          )
+        });
+      }
       for (const [name, plugin] of Object.entries(plugins)) {
         registry.register(name, plugin);
         events.emit("dx:plugin:registered", { name });
@@ -829,7 +955,7 @@ var DxKit = (() => {
       }
       initEnabledState();
       router.destroy();
-      router = createRouter({ mode, basePath, manifests: getEnabledManifests() });
+      router = createRouter({ mode: effectiveMode, basePath, manifests: getEnabledManifests() });
       routeUnsub = router.onRouteChange(handleRouteChange);
       Object.freeze(context);
       window.__DXKIT__ = context;

@@ -652,19 +652,10 @@
         themeUnsub = dx.events.on("dx:plugin:theme:changed", onThemeChange);
       }
     }
-    function shareOverride(e) {
-      const btn = e.target.closest("#share-btn");
-      if (!btn) return;
-      e.stopImmediatePropagation();
+    const releaseShareTarget = window.DnznShareTarget?.register(() => {
       const layoutTool = container.querySelector(".layout-tool");
-      const inReport = layoutTool?.classList.contains("report-mode");
-      const url = buildShareURL(container, inReport);
-      navigator.clipboard.writeText(url).then(() => {
-        btn.classList.add("copied");
-        setTimeout(() => btn.classList.remove("copied"), 1500);
-      });
-    }
-    document.addEventListener("click", shareOverride, true);
+      return buildShareURL(container, layoutTool?.classList.contains("report-mode"));
+    });
     container.querySelectorAll(".dapp-nav-link").forEach((link) => {
       on(link, "click", (e) => {
         e.preventDefault();
@@ -705,7 +696,7 @@
     return function cleanup() {
       listeners.forEach(([el, event, handler, opts]) => el.removeEventListener(event, handler, opts));
       listeners.length = 0;
-      document.removeEventListener("click", shareOverride, true);
+      releaseShareTarget?.();
       if (themeUnsub) themeUnsub.off();
       if (routeUnsub) routeUnsub.off();
       if (resizeRAF) cancelAnimationFrame(resizeRAF);

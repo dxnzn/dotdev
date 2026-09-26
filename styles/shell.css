@@ -136,17 +136,111 @@ header {
   opacity: 1; pointer-events: auto;
 }
 
-/* ── WALLET BUTTON (placeholder) ── */
-.wallet-btn {
-  display: inline-flex; align-items: center; justify-content: center;
+/* ── SETTINGS BUTTON ── */
+.settings-btn {
+  display: flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; padding: 0;
   background: transparent; border: none;
   color: var(--text-muted); cursor: pointer; transition: all 0.15s;
 }
+.settings-btn:hover { color: var(--accent); }
+.settings-btn.active { color: var(--accent); }
+.settings-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ── WALLET BUTTON ── */
+.wallet-panel { position: relative; z-index: 100; }
+.wallet-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  /* min-width, not width: the trigger grows to fit .wallet-chip and keeps its 36px square in
+     the icon-only state. */
+  min-width: 36px; height: 36px; padding: 0 0.5rem;
+  background: transparent; border: none;
+  color: var(--text-muted); cursor: pointer; transition: all 0.15s;
+}
 .wallet-btn:hover { color: var(--accent); }
-.wallet-btn:disabled { opacity: 0.3; cursor: default; }
-.wallet-btn:disabled:hover { color: var(--text-muted); }
+/* The no-provider treatment. Replaces the :disabled rules this button used to carry — a
+   disabled button dispatches no click, so it could never open its own dropdown. */
+.wallet-btn.muted { opacity: 0.3; }
+.wallet-btn.muted:hover { color: var(--text-muted); }
 .wallet-btn svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.wallet-menu {
+  display: flex; position: absolute; top: 100%; right: 0;
+  flex-direction: column; gap: 0; margin-top: 0.5rem;
+  background: var(--bg-card); border: 1px solid var(--border);
+  z-index: 10; min-width: 240px; padding: 0.5rem 0;
+  opacity: 0; pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.15s, transform 0.15s;
+}
+.wallet-panel.open .wallet-menu {
+  opacity: 1; pointer-events: auto; transform: translateY(0);
+}
+.wallet-menu-row {
+  position: relative;
+  display: flex; align-items: center; gap: 0.5rem;
+  width: 100%; padding: 0.45rem 0.75rem 0.45rem 1rem; background: transparent; border: none;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+  letter-spacing: 0.06em; color: var(--text-muted); cursor: pointer;
+  transition: all 0.15s; white-space: nowrap; text-align: left;
+}
+.wallet-menu-row:hover { color: var(--text); }
+.wallet-message {
+  padding: 0.45rem 1rem;
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+  letter-spacing: 0.06em; line-height: 1.5; color: var(--text-dim);
+}
+/* The connect region lives in the DOM from the first paint so a repaint never has to create it,
+   which means it is empty most of the time — and an empty node with padding would leave a gap in
+   the menu that reads as a rendering fault. No wrapping override: unlike .wallet-menu-row above,
+   a full sentence must wrap rather than run off the panel. */
+.wallet-message:empty { display: none; }
+/* .wallet-alert marks the one message region that speaks only when something went wrong, so it
+   takes the accent the static no-provider sentence deliberately does not. */
+.wallet-alert { color: var(--accent); }
+.wallet-chip { display: inline-flex; align-items: center; min-width: 0; }
+.wallet-address {
+  font-family: var(--font-mono); font-size: 0.75rem; font-weight: 500;
+  letter-spacing: 0.06em; white-space: nowrap;
+}
+.wallet-address-row {
+  /* 02-07's copy control positions against this row, not the menu, exactly as .share-copied
+     does against .share-btn. */
+  position: relative;
+  padding: 0.45rem 1rem; color: var(--text-dim);
+}
+/* The copy control. Sized as an inline icon-scale control inside a menu row rather than reusing
+   .copy-btn from components.css, whose margin-top is tuned for the CIC report footer. */
+.wallet-copy {
+  display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0 0.2rem;
+  font-family: var(--font-mono); font-size: 0.62rem; font-weight: 500; letter-spacing: 0.06em;
+  background: transparent; border: none; color: var(--text-muted); cursor: pointer;
+  transition: color 0.15s;
+}
+.wallet-copy:hover { color: var(--accent); }
+/* Modelled on .share-copied above: absolutely positioned against the row's position: relative,
+   opacity following a .copied parent class, pointer-events following opacity. It sits above the
+   row rather than to its left, because a dropdown row has no room outside the panel. */
+.wallet-copied {
+  position: absolute; bottom: 100%; right: 1rem;
+  margin-bottom: 0.2rem; padding: 0.3rem 0.6rem;
+  font-size: 0.68rem; font-weight: 500; letter-spacing: 0.04em;
+  color: var(--accent); background: var(--bg-card);
+  border: 1px solid var(--border); white-space: nowrap;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.15s;
+  z-index: 50;
+}
+.wallet-copy.copied .wallet-copied { opacity: 1; pointer-events: auto; }
+/* Revealed only when the clipboard is unavailable or the write failed, so the inline message's
+   advice to select the address by hand is actionable. Hidden by default, so the row's geometry
+   is unchanged the rest of the time; full-width and monospace so all 42 characters fit. */
+.wallet-address-full {
+  display: none;
+  width: 100%; margin-top: 0.4rem; padding: 0.25rem 0.35rem;
+  font-family: var(--font-mono); font-size: 0.62rem; letter-spacing: 0.02em;
+  color: var(--text); background: var(--bg-card); border: 1px solid var(--border);
+}
+.wallet-address-full.revealed { display: block; }
 
 /* ── FOOTER ── */
 footer {
@@ -163,4 +257,7 @@ footer a { color: var(--accent); text-decoration: none; }
 @media (max-width: 600px) {
   header { margin-bottom: 1rem; }
   .app { padding: 1rem 0.75rem 3rem; }
+  /* D-12: the trigger collapses to the icon alone. The address stays reachable in the dropdown
+     and in the trigger's title attribute, so nothing is lost — only the inline label. */
+  .wallet-chip { display: none; }
 }
